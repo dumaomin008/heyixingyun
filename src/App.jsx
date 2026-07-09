@@ -3,17 +3,65 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 const AMAP_KEY = "2e9013c7c076a1baec170c986d477a8b";
 let amapLoaderPromise;
 
-const pricePeriods = [
-  { start: "00:00", end: "08:00", price: "0.76 元/度" },
-  { start: "08:00", end: "18:00", price: "0.88 元/度" },
-  { start: "18:00", end: "24:00", price: "0.82 元/度" },
-];
+const priceTypeOptions = ["尖", "峰", "平", "谷"];
 
-const stayDurations = [
-  { start: "00:00", end: "08:00", duration: "40 分钟" },
-  { start: "08:00", end: "18:00", duration: "50 分钟" },
-  { start: "18:00", end: "24:00", duration: "45 分钟" },
-];
+function createPricePeriod(overrides = {}) {
+  return { priceType: "平", start: "00:00", end: "23:00", price: "", ...overrides };
+}
+
+function createStayDuration(overrides = {}) {
+  return { start: "00:00", end: "23:59", durationMin: "", ...overrides };
+}
+
+function parseTimeToMinutes(value) {
+  const [hour, minute] = String(value || "0:0").split(":").map(Number);
+  return hour * 60 + minute;
+}
+
+function isTimeInRange(start, end, minutes) {
+  const startMin = parseTimeToMinutes(start);
+  const endMin = parseTimeToMinutes(end);
+  if (endMin <= startMin) {
+    return minutes >= startMin || minutes < endMin;
+  }
+  return minutes >= startMin && minutes < endMin;
+}
+
+function derivePriceText(periods = []) {
+  const valid = periods.filter((period) => String(period.price).trim());
+  if (!valid.length) return "暂无价格";
+  const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
+  const active = valid.find((period) => isTimeInRange(period.start, period.end, nowMinutes));
+  const price = active?.price || valid[0].price;
+  return `${price} 元/度`;
+}
+
+function deriveStayDurationText(durations = []) {
+  const valid = durations.filter((item) => String(item.durationMin).trim());
+  if (!valid.length) return "—";
+  const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
+  const active = valid.find((item) => isTimeInRange(item.start, item.end, nowMinutes));
+  const minutes = active?.durationMin || valid[0].durationMin;
+  return `${minutes} 分钟`;
+}
+
+function syncStationStatusFields(enabledStatus, currentAccountStatus = "已登录") {
+  if (enabledStatus === "启用") {
+    const accountStatus = ["已停用", "未开通"].includes(currentAccountStatus) ? "已登录" : currentAccountStatus;
+    return {
+      enabledStatus: "启用",
+      status: "正常",
+      openStatus: "已开通",
+      accountStatus,
+    };
+  }
+  return {
+    enabledStatus: "停用",
+    status: "停用",
+    openStatus: "未开通",
+    accountStatus: "已停用",
+  };
+}
 
 const stationPositions = {
   ST001: { left: "38%", top: "51%" },
@@ -23,86 +71,15 @@ const stationPositions = {
   ST005: { left: "18%", top: "64%" },
 };
 
-const routePoints = {
-  vehicle: [102.545, 24.337],
-  pickup: [102.72, 24.54],
-  dropoff: [102.34, 24.08],
-};
-
-const routePaths = {
-  travelled: [
-    routePoints.dropoff,
-    [102.39, 24.16],
-    [102.45, 24.235],
-    [102.505, 24.295],
-    routePoints.vehicle,
-  ],
-  remaining: [
-    routePoints.vehicle,
-    [102.61, 24.34],
-    [102.66, 24.405],
-    [102.695, 24.475],
-    routePoints.pickup,
-  ],
-};
-
-const stageRoutes = {
-  toPickup: {
-    travelledBase: routePaths.travelled,
-    active: routePaths.remaining,
-    startProgress: 0,
-    speed: 0.000005,
-  },
-  toDropoff: {
-    travelledBase: [],
-    active: [
-      routePoints.pickup,
-      [102.695, 24.475],
-      [102.66, 24.405],
-      [102.61, 24.34],
-      [102.545, 24.28],
-      [102.48, 24.22],
-      [102.42, 24.15],
-      routePoints.dropoff,
-    ],
-    startProgress: 0,
-    speed: 0.000005,
-  },
-};
+const vehiclePosition = [102.545, 24.337];
+const DRIVER_LOCATION_MODE = "vehicle";
 
 const MAP_VEHICLE_ZOOM = 13.2;
-const MAP_VEHICLE_PADDING = [210, 80, 90, 40];
-const MAP_ROUTE_PADDING = [196, 88, 40, 72];
+const MAP_VEHICLE_PADDING = [100, 80, 90, 40];
 const MAP_OVERVIEW_MAX_ZOOM = 13;
 const MAP_OVERVIEW_MIN_ZOOM = 11.5;
-const MAP_LOW_SOC_MAX_ZOOM = 12.5;
 const MAP_NO_LOCATION_MAX_ZOOM = 11;
-const MAP_TASK_OVERVIEW_MAX_ZOOM = 13;
 const VEHICLE_MARKER_SIZE = 44;
-
-const taskStages = {
-  toPickup: {
-    label: "前往装货点",
-    helper: "展示车辆、装货点、卸货点、已走轨迹和剩余路线",
-    destination: "云南省玉溪市红塔区研和街道",
-    action: "离开装货点",
-    next: "toDropoff",
-  },
-  toDropoff: {
-    label: "前往卸货点",
-    helper: "路线切换为装货点到卸货点，继续自动刷新",
-    destination: "云南省玉溪市江川区大街街道",
-    action: "离开卸货点",
-    next: "completed",
-  },
-  completed: {
-    label: "任务完成",
-    helper: "任务路线和轨迹已清除，仅展示车辆当前位置与正常场站",
-    destination: "暂无进行中任务",
-    action: "重新去运输",
-    next: "toPickup",
-  },
-};
 
 const initialStations = [
   {
@@ -124,7 +101,7 @@ const initialStations = [
     drivingKm: 8.6,
     straightKm: 7.8,
     durationMin: 16,
-    routeNearbyFlag: true,
+    routeNearbyFlag: false,
     speedLabel: "快充",
     status: "正常",
     validation: "已校验",
@@ -150,7 +127,7 @@ const initialStations = [
     drivingKm: 9.8,
     straightKm: 8.4,
     durationMin: 14,
-    routeNearbyFlag: true,
+    routeNearbyFlag: false,
     speedLabel: "快充",
     status: "正常",
     validation: "已校验",
@@ -235,7 +212,38 @@ const initialStations = [
     remark: "靠近峨山货运通道，适合南向任务中途补能。",
     updatedAt: "2026-07-05 10:05",
   },
-];
+].map((station, index) => {
+  const seedPrice = station.priceText?.includes("暂无") ? "" : (station.priceText?.match(/[\d.]+/)?.[0] || "");
+  const pricePeriods = [
+    { priceType: "平", start: "00:00", end: "23:00", price: seedPrice },
+    ...(index === 0 ? [{ priceType: "尖", start: "23:00", end: "00:00", price: "0.95" }] : []),
+  ];
+  const stayDurations = [
+    { start: "00:00", end: "08:00", durationMin: 40 },
+    { start: "08:00", end: "18:00", durationMin: 50 },
+    { start: "18:00", end: "24:00", durationMin: 45 },
+  ];
+  return {
+    areaType: ["点", "点", "区域", "行政区域", "点"][index] ?? "点",
+    stationType: "充电站",
+    shipReceiveType: "收/发货",
+    department: "玉溪运营部",
+    shareMode: ["全局", "部门", "个人", "全局", "部门"][index] ?? "全局",
+    radius: 500,
+    settlementEntity: "玉溪物流能源有限公司",
+    openStatus: station.status === "停用" ? "未开通" : "已开通",
+    account: "tms_yx_ops",
+    editor: "张运营",
+    autoCode: `YX${String(index + 1).padStart(3, "0")}`,
+    enabledStatus: station.status === "正常" ? "启用" : "停用",
+    accountStatus: ["已登录", "已登录", "未登录", "已停用", "未开通"][index] ?? "已登录",
+    ...station,
+    pricePeriods,
+    stayDurations,
+    priceText: derivePriceText(pricePeriods),
+    stayDurationText: deriveStayDurationText(stayDurations),
+  };
+});
 
 const initialFeedback = [
   {
@@ -271,15 +279,10 @@ const context = {
   trailerPlateNo: "云A1234挂",
   driverId: "DR001",
   taskId: "TK20260705001",
-  phoneLocation: "手机定位可用",
-  vehicleLocation: "车辆定位 42 秒前",
 };
 
 const mapConfigDefault = {
   rankLimit: 3,
-  lowSocThreshold: 30,
-  criticalSocThreshold: 15,
-  autoRefreshSeconds: 30,
   manualRefreshCooldownSeconds: 10,
 };
 
@@ -301,13 +304,42 @@ function buildStationMarkerHtml(station, selected) {
   `;
 }
 
+function buildVehicleMarkerHtml() {
+  return `
+    <div class="map-vehicle-alert" aria-label="当前位置">
+      <span class="vehicle-pin">
+        <svg class="vehicle-pin-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="7.2" r="3.4" fill="currentColor" />
+          <path d="M6.5 20.2c.9-3.8 3.2-5.7 5.5-5.7s4.6 1.9 5.5 5.7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" />
+        </svg>
+      </span>
+    </div>
+  `;
+}
+
 function isMapOverlayTarget(target) {
-  return Boolean(target?.closest?.(".map-charge-marker, .map-vehicle-alert, .map-task-marker"));
+  return Boolean(target?.closest?.(".map-charge-marker, .map-vehicle-alert"));
+}
+
+function readAppPath() {
+  const { hash, pathname } = window.location;
+  if (hash.length > 1) {
+    return hash.startsWith("#/") ? hash.slice(1) : `/${hash.slice(1)}`;
+  }
+  if (pathname && pathname !== "/" && pathname !== "/index.html") {
+    return pathname;
+  }
+  return "/";
 }
 
 function navigate(path) {
-  window.history.pushState({}, "", path);
-  window.dispatchEvent(new PopStateEvent("popstate"));
+  const normalized = path.startsWith("/") ? path : `/${path}`;
+  const nextHash = `#${normalized}`;
+  if (window.location.hash === nextHash) {
+    window.dispatchEvent(new Event("hashchange"));
+    return;
+  }
+  window.location.hash = normalized;
 }
 
 function navigateToStationDetail(stationId, backPath = "/driver/list") {
@@ -320,6 +352,40 @@ function navigateFromStationDetailBack() {
   sessionStorage.removeItem("driverDetailBack");
   navigate(backPath);
 }
+
+function navigateToStationFeedback(stationId, backPath = "/driver") {
+  sessionStorage.setItem("driverFeedbackBack", backPath);
+  navigate(`/driver/station/${stationId}/feedback`);
+}
+
+function navigateFromStationFeedbackBack() {
+  const backPath = sessionStorage.getItem("driverFeedbackBack") || "/driver";
+  sessionStorage.removeItem("driverFeedbackBack");
+  navigate(backPath);
+}
+
+function parseDriverStationPath(path) {
+  const match = path.match(/^\/driver\/station\/([^/]+)(?:\/feedback)?$/);
+  if (!match) {
+    return { stationId: "", isDetailPage: false, isFeedbackPage: false };
+  }
+  return {
+    stationId: match[1],
+    isDetailPage: !path.endsWith("/feedback"),
+    isFeedbackPage: path.endsWith("/feedback"),
+  };
+}
+
+const driverFeedbackTypeOptions = [
+  "场站无法充电",
+  "充电桩故障",
+  "排队严重",
+  "重卡无法进入",
+  "地址/定位不准",
+  "价格不一致",
+  "场站信息不准确",
+  "其他问题",
+];
 
 function returnToDriverMap({ selectedId, panel } = {}) {
   if (selectedId) {
@@ -361,6 +427,7 @@ function loadAmap() {
 
 function getStationRuntime(station, locationMode) {
   if (locationMode === "none") {
+
     return { ...station, distanceType: "none", distanceValue: null, distanceText: "定位后可查看" };
   }
   if (station.drivingKm == null) {
@@ -379,15 +446,6 @@ function sortStations(stations, locationMode) {
   return visible.sort((a, b) => getStationRuntime(a, locationMode).distanceValue - getStationRuntime(b, locationMode).distanceValue);
 }
 
-function getFullRoutePath(taskStage) {
-  const stage = stageRoutes[taskStage];
-  if (!stage) return [];
-  if (stage.travelledBase?.length) {
-    return [...stage.travelledBase.slice(0, -1), ...stage.active];
-  }
-  return stage.active;
-}
-
 function fitMapWithZoomClamp(map, overlays, padding, maxZoom, minZoom) {
   if (!overlays.length) return;
   map.setFitView(overlays, false, padding, maxZoom);
@@ -402,10 +460,8 @@ function fitMapWithZoomClamp(map, overlays, padding, maxZoom, minZoom) {
 function fitChargingOverview(map, overlays, {
   padding,
   locationMode,
-  taskStage,
   rankCount,
   vehicleMarker,
-  lowSoc,
 }) {
   const stationMarkers = overlays.filter((overlay) => overlay.getExtData?.() === "station");
 
@@ -424,148 +480,27 @@ function fitChargingOverview(map, overlays, {
   if (vehicleMarker) fitTargets.push(vehicleMarker);
   fitTargets.push(...stationMarkers.slice(0, rankCount));
 
-  if (isTaskRunning(taskStage)) {
-    const routeOverlays = overlays.filter((overlay) => {
-      const type = overlay.getExtData?.();
-      return type === "route" || type === "task";
-    });
-    fitTargets.push(...routeOverlays);
-  }
-
   if (!fitTargets.length) return;
 
-  const maxZoom = lowSoc
-    ? MAP_LOW_SOC_MAX_ZOOM
-    : isTaskRunning(taskStage)
-      ? MAP_TASK_OVERVIEW_MAX_ZOOM
-      : MAP_OVERVIEW_MAX_ZOOM;
-
-  fitMapWithZoomClamp(map, fitTargets, padding, maxZoom, MAP_OVERVIEW_MIN_ZOOM);
-}
-
-function fitRouteOverview(map, AMap, taskStage, overlays, padding) {
-  const fullPath = getFullRoutePath(taskStage);
-  const taskMarkers = overlays.filter((overlay) => overlay.getExtData?.() === "task");
-
-  if (fullPath.length < 2) {
-    const routeOverlays = overlays.filter((overlay) => {
-      const type = overlay.getExtData?.();
-      return type === "route" || type === "task";
-    });
-    if (routeOverlays.length) {
-      map.setFitView(routeOverlays, false, padding, 12);
-    }
-    return;
-  }
-
-  const fitLine = new AMap.Polyline({
-    path: fullPath,
-    strokeOpacity: 0,
-    strokeWeight: 1,
-    zIndex: 1,
-  });
-  const fitOverlays = [...taskMarkers, fitLine];
-  map.add(fitLine);
-  map.setFitView(fitOverlays, false, padding, 12);
-  map.remove(fitLine);
-}
-
-function isTaskRunning(stage) {
-  return stage === "toPickup" || stage === "toDropoff";
-}
-
-function pathSegmentLength(start, end) {
-  return Math.hypot(end[0] - start[0], end[1] - start[1]);
-}
-
-function pathTotalLength(points) {
-  return points.slice(0, -1).reduce((total, point, index) => total + pathSegmentLength(point, points[index + 1]), 0);
-}
-
-function interpolateAlongPath(points, progress) {
-  const clamped = Math.min(1, Math.max(0, progress));
-  const total = pathTotalLength(points);
-  if (total === 0) return points[0];
-
-  const target = total * clamped;
-  let walked = 0;
-
-  for (let index = 0; index < points.length - 1; index += 1) {
-    const start = points[index];
-    const end = points[index + 1];
-    const segment = pathSegmentLength(start, end);
-    if (walked + segment >= target) {
-      const ratio = (target - walked) / segment;
-      return [start[0] + (end[0] - start[0]) * ratio, start[1] + (end[1] - start[1]) * ratio];
-    }
-    walked += segment;
-  }
-
-  return points[points.length - 1];
-}
-
-function buildRouteGeometry(fullPath, progress) {
-  const position = interpolateAlongPath(fullPath, progress);
-  const travelled = [fullPath[0]];
-  const total = pathTotalLength(fullPath);
-  const target = total * Math.min(1, Math.max(0, progress));
-  let walked = 0;
-  let splitIndex = fullPath.length - 1;
-
-  for (let index = 0; index < fullPath.length - 1; index += 1) {
-    const segment = pathSegmentLength(fullPath[index], fullPath[index + 1]);
-    if (walked + segment >= target) {
-      travelled.push(position);
-      splitIndex = index + 1;
-      break;
-    }
-    travelled.push(fullPath[index + 1]);
-    walked += segment;
-  }
-
-  if (travelled.length === 1 || (travelled[travelled.length - 1][0] !== position[0] || travelled[travelled.length - 1][1] !== position[1])) {
-    travelled.push(position);
-  }
-
-  const remaining = [position, ...fullPath.slice(splitIndex)];
-
-  return { vehiclePosition: position, travelled, remaining };
-}
-
-function getRouteGeometry(taskStage, routeProgress) {
-  if (!isTaskRunning(taskStage)) {
-    return {
-      vehiclePosition: routePoints.dropoff,
-      travelled: [],
-      remaining: [],
-    };
-  }
-
-  const stage = stageRoutes[taskStage];
-  const activeGeometry = buildRouteGeometry(stage.active, routeProgress);
-
-  if (!stage.travelledBase.length) {
-    return activeGeometry;
-  }
-
-  return {
-    vehiclePosition: activeGeometry.vehiclePosition,
-    travelled: [...stage.travelledBase.slice(0, -1), ...activeGeometry.travelled],
-    remaining: activeGeometry.remaining,
-  };
+  fitMapWithZoomClamp(map, fitTargets, padding, MAP_OVERVIEW_MAX_ZOOM, MAP_OVERVIEW_MIN_ZOOM);
 }
 
 export function App() {
-  const [path, setPath] = useState(window.location.pathname);
+  const [path, setPath] = useState(readAppPath);
   const [stations, setStations] = useState(initialStations);
   const [feedback, setFeedback] = useState(initialFeedback);
   const [mapConfig, setMapConfig] = useState(mapConfigDefault);
-  const [taskStage, setTaskStage] = useState("toPickup");
-  const [locationMode, setLocationMode] = useState("vehicle");
-  const [soc, setSoc] = useState(28);
-  const [lastSync, setLastSync] = useState("13:40:18");
 
-  window.onpopstate = () => setPath(window.location.pathname);
+  useEffect(() => {
+    const syncPath = () => setPath(readAppPath());
+    const { hash, pathname } = window.location;
+    if (!hash && pathname && pathname !== "/" && pathname !== "/index.html") {
+      window.location.replace(`/#${pathname}`);
+      return undefined;
+    }
+    window.addEventListener("hashchange", syncPath);
+    return () => window.removeEventListener("hashchange", syncPath);
+  }, []);
 
   const shared = {
     stations,
@@ -574,18 +509,10 @@ export function App() {
     setFeedback,
     mapConfig,
     setMapConfig,
-    taskStage,
-    setTaskStage,
-    locationMode,
-    setLocationMode,
-    soc,
-    setSoc,
-    lastSync,
-    setLastSync,
   };
 
   if (path.startsWith("/admin")) {
-    return <AdminApp {...shared} />;
+    return <AdminApp path={path} {...shared} />;
   }
 
   if (path.startsWith("/driver")) {
@@ -599,15 +526,15 @@ function LaunchHub() {
   return (
     <main className="launch">
       <section className="launch-panel">
-        <p className="eyebrow">TMS 场站路线规划 · 第一期</p>
-        <h1>业务状态型交互原型</h1>
+        <p className="eyebrow">TMS 场站地图 · 第一期</p>
+        <h1>司机端场站地图原型</h1>
         <p>
-          基于 PRD 构建司机端地图找站与 PC 后台维护闭环。你可以切换定位、任务、SOC、场站启停、
+          基于 PRD 构建司机端地图找站与 PC 后台维护闭环。你可以维护场站、
           地图配置、导航失败和反馈处理状态，观察两端联动。
         </p>
         <div className="launch-actions">
           <button className="primary-btn" onClick={() => navigate("/driver")}>打开司机端 H5</button>
-          <button className="secondary-btn" onClick={() => navigate("/admin")}>打开运营后台</button>
+          <button className="secondary-btn" onClick={() => navigate("/admin/stations")}>打开运营后台</button>
         </div>
       </section>
     </main>
@@ -617,41 +544,24 @@ function LaunchHub() {
 function DriverApp({
   path = "/driver",
   stations,
-  feedback,
   setFeedback,
   mapConfig,
-  taskStage,
-  setTaskStage,
-  locationMode,
-  setLocationMode,
-  soc,
-  setSoc,
-  lastSync,
-  setLastSync,
 }) {
+  const locationMode = DRIVER_LOCATION_MODE;
   const isListPage = path === "/driver/list";
-  const isDetailPage = path.startsWith("/driver/station/");
-  const detailStationId = isDetailPage ? path.slice("/driver/station/".length) : "";
-  const isMapVisible = !isListPage && !isDetailPage;
+  const { stationId: detailStationId, isDetailPage, isFeedbackPage } = parseDriverStationPath(path);
+  const isMapVisible = !isListPage && !isDetailPage && !isFeedbackPage;
 
   const driverStations = useMemo(() => sortStations(stations, locationMode), [stations, locationMode]);
   const runtimeStations = useMemo(() => driverStations.map((station) => getStationRuntime(station, locationMode)), [driverStations, locationMode]);
-  const ranked = locationMode === "none" ? [] : runtimeStations.slice(0, mapConfig.rankLimit);
-  const [mapView, setMapView] = useState("vehicle");
+  const ranked = runtimeStations.slice(0, mapConfig.rankLimit);
   const [vehicleZoomMode, setVehicleZoomMode] = useState("street");
   const [followVehicle, setFollowVehicle] = useState(true);
   const [recenterTick, setRecenterTick] = useState(0);
-  const [routeProgress, setRouteProgress] = useState(stageRoutes.toPickup.startProgress);
   const [selectedId, setSelectedId] = useState(runtimeStations[0]?.id ?? stations[0].id);
   const [panel, setPanel] = useState("collapsed");
   const [toast, setToast] = useState("");
-  const [refreshing, setRefreshing] = useState(false);
-  const [cooldown, setCooldown] = useState(false);
-  const [feedbackType, setFeedbackType] = useState("重卡无法进入");
-  const [feedbackRemark, setFeedbackRemark] = useState("");
   const selected = runtimeStations.find((station) => station.id === selectedId) ?? runtimeStations[0];
-  const task = taskStages[taskStage];
-  const severity = soc <= mapConfig.criticalSocThreshold ? "critical" : soc <= mapConfig.lowSocThreshold ? "low" : "ok";
   const handleMapBlankClick = useCallback(() => setPanel("collapsed"), []);
   const handleAmapStationClick = useCallback((stationId) => {
     setSelectedId(stationId);
@@ -659,11 +569,6 @@ function DriverApp({
     setFollowVehicle(false);
   }, []);
   const handleMapUserInteract = useCallback(() => setFollowVehicle(false), []);
-
-  const routeGeometry = useMemo(
-    () => getRouteGeometry(taskStage, routeProgress),
-    [taskStage, routeProgress],
-  );
 
   useEffect(() => {
     const pendingPanel = sessionStorage.getItem("driverPanel");
@@ -681,75 +586,15 @@ function DriverApp({
   }, []);
 
   useEffect(() => {
-    setRouteProgress(stageRoutes[taskStage]?.startProgress ?? 1);
-  }, [taskStage]);
-
-  useEffect(() => {
-    if (!isTaskRunning(taskStage)) return undefined;
-
-    const stage = stageRoutes[taskStage];
-    let frameId = 0;
-    let lastTime = performance.now();
-
-    function tick(now) {
-      const delta = now - lastTime;
-      lastTime = now;
-      setRouteProgress((current) => Math.min(1, current + stage.speed * delta));
-      frameId = window.requestAnimationFrame(tick);
-    }
-
-    frameId = window.requestAnimationFrame(tick);
-    return () => window.cancelAnimationFrame(frameId);
-  }, [taskStage]);
+    if (!isMapVisible) return;
+    setVehicleZoomMode("street");
+    setFollowVehicle(true);
+  }, [isMapVisible]);
 
   function showToast(text) {
     setToast(text);
     window.clearTimeout(showToast.timer);
     showToast.timer = window.setTimeout(() => setToast(""), 2600);
-  }
-
-  function syncData() {
-    if (cooldown) {
-      showToast(`刷新太频繁，请等待 ${mapConfig.manualRefreshCooldownSeconds} 秒限制结束`);
-      return;
-    }
-    setRefreshing(true);
-    setCooldown(true);
-    showToast("正在同步车辆定位、SOC、任务路线、场站与排名");
-    window.setTimeout(() => {
-      setRefreshing(false);
-      setLastSync("13:41:06");
-      setSoc((value) => Math.max(12, value - 2));
-      showToast(`刷新完成：正常场站 ${driverStations.length} 个，排名 ${ranked.length || "无定位"} 个`);
-    }, 850);
-    window.setTimeout(() => setCooldown(false), 2200);
-  }
-
-  function submitDriverFeedback() {
-    setFeedback((items) => [
-      {
-        id: `FB${Date.now()}`,
-        stationId: selected.id,
-        stationName: selected.name,
-        type: feedbackType,
-        remark: feedbackRemark || "司机未填写备注",
-        driver: context.driverId,
-        vehicle: context.plateNo,
-        task: context.taskId,
-        status: "待处理",
-        submittedAt: "2026-07-05 13:41",
-        handler: "",
-      },
-      ...items,
-    ]);
-    setPanel("station");
-    setFeedbackRemark("");
-    showToast(`反馈已同步至后台：${feedbackType}`);
-  }
-
-  function advanceTask() {
-    setTaskStage(task.next);
-    showToast(task.next === "completed" ? "任务已完成，路线和轨迹已清除" : "任务状态已切换，地图路线已刷新");
   }
 
   return (
@@ -767,13 +612,9 @@ function DriverApp({
           <AmapCanvas
             stations={runtimeStations}
             selectedId={selectedId}
-            taskStage={taskStage}
-            mapView={mapView}
             vehicleZoomMode={vehicleZoomMode}
             followVehicle={followVehicle}
             recenterTick={recenterTick}
-            routeGeometry={routeGeometry}
-            soc={soc}
             locationMode={locationMode}
             mapConfig={mapConfig}
             mapActive={isMapVisible}
@@ -783,70 +624,44 @@ function DriverApp({
           />
           <div className="map-fade" />
 
-          <header className="driver-topbar" onClick={(event) => event.stopPropagation()}>
-            <button className="top-tool" onClick={() => setPanel("more")}>状态</button>
+          <header className="driver-map-header" onClick={(event) => event.stopPropagation()}>
+            <h1>场站地图</h1>
           </header>
 
-          <section className={`vehicle-card ${severity}`} onClick={(event) => event.stopPropagation()}>
-            <div className="plate-row">
-              <span className="truck-mark">T</span>
-              <span><b>主车</b>{context.plateNo}</span>
-              <span><b>挂车</b>{context.trailerPlateNo}</span>
-            </div>
-            <div className="vehicle-grid">
-              <div>
-                <strong>SOC <em>{soc}%</em></strong>
-                <span className="battery-line"><i style={{ width: `${soc}%` }} /></span>
-              </div>
-              <div className={taskStage === "completed" ? "vehicle-task-idle" : ""}>
-                {taskStage !== "completed" && <strong>{task.label}</strong>}
-                <p>{task.destination}</p>
-              </div>
-            </div>
-          </section>
-
-          {severity !== "ok" && selected && (
-            <button className={`battery-prompt ${severity}`} onClick={(event) => { event.stopPropagation(); setSelectedId(ranked[0]?.id ?? selected.id); setPanel("station"); }}>
-              <span>{severity === "critical" ? "严重低电" : "低电提醒"}</span>
-              <b>{locationMode === "none" ? "定位不可用，先查看全部正常场站" : "建议前往最近的充电站点进行补能"}</b>
-              <strong>去充电</strong>
-            </button>
-          )}
-
           <div className="map-tools" onClick={(event) => event.stopPropagation()}>
-            <button onClick={() => {
-              setMapView("vehicle");
-              setVehicleZoomMode("street");
-              setFollowVehicle(true);
-              setRecenterTick((tick) => tick + 1);
-              showToast(locationMode === "vehicle" ? "已回到车辆当前位置" : "已回到手机定位");
-            }}>定位</button>
-            <button className={cooldown ? "disabled" : ""} onClick={syncData}>{refreshing ? "刷新中" : "刷新"}</button>
-            <button onClick={() => {
-              if (!isTaskRunning(taskStage)) {
-                showToast("当前无进行中任务路线");
-                return;
-              }
-              setFollowVehicle(false);
-              setMapView("route");
-              setRecenterTick((tick) => tick + 1);
-              showToast("已展示任务路线全貌");
-            }}>全程</button>
-            <button onClick={() => navigate("/driver/list")}>列表</button>
+            <button
+              type="button"
+              className="map-tool-btn"
+              aria-label="定位"
+              onClick={() => {
+                setVehicleZoomMode("street");
+                setFollowVehicle(true);
+                setRecenterTick((tick) => tick + 1);
+                showToast("已回到当前位置");
+              }}
+            >
+              <LocateIcon />
+            </button>
+            <button
+              type="button"
+              className="map-tool-btn map-tool-btn-charge"
+              aria-label="去充电"
+              onClick={() => navigate("/driver/list")}
+            >
+              <ChargeIcon />
+            </button>
           </div>
 
           {panel === "station" && selected && (
             <div onClick={(event) => event.stopPropagation()}>
               <StationPanel
                 station={selected}
-                rank={ranked.findIndex((item) => item.id === selected.id) + 1}
                 onNavigate={() => setPanel("navigate")}
                 onDetails={() => {
                   setPanel("collapsed");
                   navigateToStationDetail(selected.id, "/driver");
                 }}
-                onFeedback={() => setPanel("feedback")}
-                onCopy={() => showToast("已复制场站名称和地址")}
+                onCopy={() => showToast("已复制地址")}
                 onClose={() => setPanel("collapsed")}
               />
             </div>
@@ -858,55 +673,6 @@ function DriverApp({
               onCopy={() => showToast("导航失败处理：已复制场站地址")}
               showToast={showToast}
             />
-          )}
-          {panel === "feedback" && selected && (
-            <DriverSheet title="问题反馈" onClose={() => setPanel("station")}>
-              <div className="feedback-context">
-                <span>{selected.name}</span>
-                <small>{context.driverId} · {context.plateNo} · {context.taskId}</small>
-              </div>
-              <label className="form-label">反馈类型</label>
-              <select value={feedbackType} onChange={(event) => setFeedbackType(event.target.value)}>
-                {["场站无法充电", "充电桩故障", "排队严重", "重卡无法进入", "地址/定位不准", "价格不一致", "场站信息不准确", "其他问题"].map((item) => (
-                  <option key={item}>{item}</option>
-                ))}
-              </select>
-              <label className="form-label">备注</label>
-              <textarea value={feedbackRemark} onChange={(event) => setFeedbackRemark(event.target.value)} placeholder="补充现场情况，例如入口限高、现场价格、排队情况" />
-              <button className="primary-btn full" onClick={submitDriverFeedback}>提交反馈并同步后台</button>
-            </DriverSheet>
-          )}
-          {panel === "more" && (
-            <DriverSheet title="业务状态调试" onClose={() => setPanel("collapsed")}>
-              <div className="state-switcher">
-                <p><b>定位来源</b><small>车辆定位超过 1 分钟时降级到手机定位；两者失败进入无定位模式。</small></p>
-                <div className="choice-grid">
-                  {[
-                    ["vehicle", "车辆定位", context.vehicleLocation],
-                    ["phone", "手机定位", context.phoneLocation],
-                    ["none", "无定位", "距离和排名隐藏"],
-                  ].map(([key, label, helper]) => (
-                    <button key={key} className={locationMode === key ? "active" : ""} onClick={() => setLocationMode(key)}>
-                      <b>{label}</b><span>{helper}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="state-switcher">
-                <p><b>任务状态</b><small>{task.helper}</small></p>
-                <button className="secondary-btn full" onClick={advanceTask}>{task.action}</button>
-              </div>
-              <div className="state-switcher">
-                <p><b>SOC 状态</b><small>后台阈值：低电 {mapConfig.lowSocThreshold}% / 严重 {mapConfig.criticalSocThreshold}%</small></p>
-                <input type="range" min="10" max="90" value={soc} onChange={(event) => setSoc(Number(event.target.value))} />
-              </div>
-              <div className="sync-list">
-                <p><b>最后同步</b><span>{lastSync}</span></p>
-                <p><b>推荐排名数量</b><span>{locationMode === "none" ? "无定位不排名" : `前 ${mapConfig.rankLimit} 名`}</span></p>
-                <p><b>自动刷新</b><span>{isTaskRunning(taskStage) ? `${mapConfig.autoRefreshSeconds} 秒` : "任务完成后关闭"}</span></p>
-                <p><b>反馈记录</b><span>{feedback.length} 条</span></p>
-              </div>
-            </DriverSheet>
           )}
 
           <nav className="driver-tabs" onClick={(event) => event.stopPropagation()}>
@@ -921,7 +687,6 @@ function DriverApp({
         {isListPage && (
           <DriverStationListPage
             stations={stations}
-            locationMode={locationMode}
             mapConfig={mapConfig}
           />
         )}
@@ -930,21 +695,18 @@ function DriverApp({
           <DriverStationDetailPage
             stationId={detailStationId}
             stations={stations}
-            locationMode={locationMode}
+          />
+        )}
+
+        {isFeedbackPage && (
+          <DriverStationFeedbackPage
+            stationId={detailStationId}
+            stations={stations}
+            setFeedback={setFeedback}
           />
         )}
       </section>
     </main>
-  );
-}
-
-function RouteOverlay({ stage }) {
-  return (
-    <div className={`route-overlay ${stage}`} aria-hidden="true">
-      <span className="track-line" />
-      <span className="remain-line" />
-      <span className="truck-dot" />
-    </div>
   );
 }
 
@@ -989,22 +751,6 @@ function alignVehicleToPaddedCenter(map, vehiclePosition, padding, duration = 0)
   map.panBy(dx, dy, duration);
 }
 
-function panMapWithVehicleDelta(map, lastPosition, currentPosition) {
-  const last = resolveMapCenter(lastPosition);
-  const current = resolveMapCenter(currentPosition);
-  if (!map || !last || !current) return false;
-
-  const lastPixel = map.lngLatToContainer(last);
-  const currPixel = map.lngLatToContainer(current);
-  const dx = lastPixel.x - currPixel.x;
-  const dy = lastPixel.y - currPixel.y;
-
-  if (Math.abs(dx) < 0.05 && Math.abs(dy) < 0.05) return false;
-
-  map.panBy(dx, dy, 0);
-  return true;
-}
-
 function recenterOnVehicle(map, vehiclePosition, padding, zoom) {
   const center = resolveMapCenter(vehiclePosition);
   if (!map || !center) return;
@@ -1017,37 +763,23 @@ function applyMapView(
   map,
   AMap,
   {
-    mapView,
-    taskStage,
     overlaysRef,
     vehiclePosition,
     programmaticMoveRef,
     locationMode,
     rankCount,
-    lowSoc,
     vehicleZoomMode,
   },
 ) {
   const overlays = overlaysRef.current;
   if (!map || !AMap || !overlays.length) return;
 
-  const stationMarkers = overlays.filter((overlay) => overlay.getExtData?.() === "station");
   const vehicleMarker = overlays.find((overlay) => overlay.getExtData?.() === "vehicle");
 
   programmaticMoveRef.current = true;
   window.setTimeout(() => {
     programmaticMoveRef.current = false;
   }, 800);
-
-  if (mapView === "route" && isTaskRunning(taskStage)) {
-    fitRouteOverview(map, AMap, taskStage, overlays, MAP_ROUTE_PADDING);
-    return;
-  }
-
-  if (mapView === "stations" && stationMarkers.length) {
-    map.setFitView(stationMarkers, false, MAP_VEHICLE_PADDING, 13);
-    return;
-  }
 
   if (vehicleZoomMode === "street") {
     recenterOnVehicle(map, vehiclePosition, MAP_VEHICLE_PADDING, MAP_VEHICLE_ZOOM);
@@ -1057,94 +789,24 @@ function applyMapView(
   fitChargingOverview(map, overlays, {
     padding: MAP_VEHICLE_PADDING,
     locationMode,
-    taskStage,
     rankCount,
     vehicleMarker,
-    lowSoc,
   });
 }
 
-function syncMapOverlaysRef(overlaysRef, stationMarkersRef, vehicleMarkerRef, routeOverlaysRef) {
+function syncMapOverlaysRef(overlaysRef, stationMarkersRef, vehicleMarkerRef) {
   overlaysRef.current = [
     ...stationMarkersRef.current.map((item) => item.marker),
     ...(vehicleMarkerRef.current ? [vehicleMarkerRef.current] : []),
-    ...routeOverlaysRef.current,
   ];
-}
-
-function createRouteOverlays(AMap, routeGeometry) {
-  const pickupMarker = new AMap.Marker({
-    position: routePoints.pickup,
-    zIndex: 110,
-    offset: new AMap.Pixel(-20, -20),
-    extData: "task",
-    content: '<div class="map-task-marker pickup"><span class="task-pin">装</span></div>',
-  });
-  const dropoffMarker = new AMap.Marker({
-    position: routePoints.dropoff,
-    zIndex: 110,
-    offset: new AMap.Pixel(-20, -20),
-    extData: "task",
-    content: '<div class="map-task-marker dropoff"><span class="task-pin">卸</span></div>',
-  });
-  const travelledHalo = new AMap.Polyline({
-    path: routeGeometry.travelled,
-    strokeColor: "#F8FAFC",
-    strokeWeight: 12,
-    strokeOpacity: 0.9,
-    lineJoin: "round",
-    zIndex: 72,
-    extData: "route",
-  });
-  const travelledLine = new AMap.Polyline({
-    path: routeGeometry.travelled,
-    strokeColor: "#5B5CF6",
-    strokeWeight: 6,
-    strokeOpacity: 0.88,
-    strokeStyle: "dashed",
-    strokeDasharray: [12, 10],
-    showDir: true,
-    lineJoin: "round",
-    zIndex: 82,
-    extData: "route",
-  });
-  const remainingHalo = new AMap.Polyline({
-    path: routeGeometry.remaining,
-    strokeColor: "#F8FAFC",
-    strokeWeight: 12,
-    strokeOpacity: 0.9,
-    lineJoin: "round",
-    zIndex: 71,
-    extData: "route",
-  });
-  const remainingLine = new AMap.Polyline({
-    path: routeGeometry.remaining,
-    strokeColor: "#5B5CF6",
-    strokeWeight: 6,
-    strokeOpacity: 0.92,
-    strokeStyle: "solid",
-    showDir: true,
-    lineJoin: "round",
-    zIndex: 81,
-    extData: "route",
-  });
-
-  return {
-    overlays: [pickupMarker, dropoffMarker, travelledHalo, travelledLine, remainingHalo, remainingLine],
-    lines: { travelledHalo, travelledLine, remainingHalo, remainingLine },
-  };
 }
 
 function AmapCanvas({
   stations,
   selectedId,
-  taskStage,
-  mapView,
   vehicleZoomMode,
   followVehicle,
   recenterTick,
-  routeGeometry,
-  soc,
   locationMode,
   mapConfig,
   mapActive = true,
@@ -1155,27 +817,18 @@ function AmapCanvas({
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const overlaysRef = useRef([]);
-  const routeOverlaysRef = useRef([]);
   const vehicleMarkerRef = useRef(null);
   const stationMarkersRef = useRef([]);
-  const routeLinesRef = useRef({});
   const selectedIdRef = useRef(selectedId);
   selectedIdRef.current = selectedId;
   const programmaticMoveRef = useRef(false);
-  const lastFollowPositionRef = useRef(null);
-  const routeGeometryRef = useRef(routeGeometry);
   const followVehicleRef = useRef(followVehicle);
-  const mapViewRef = useRef(mapView);
   const vehicleZoomModeRef = useRef(vehicleZoomMode);
   const mapActiveRef = useRef(mapActive);
-  const taskStageRef = useRef(taskStage);
   const recenterTickRef = useRef(recenterTick);
-  routeGeometryRef.current = routeGeometry;
   followVehicleRef.current = followVehicle;
-  mapViewRef.current = mapView;
   vehicleZoomModeRef.current = vehicleZoomMode;
   mapActiveRef.current = mapActive;
-  taskStageRef.current = taskStage;
   recenterTickRef.current = recenterTick;
   const onBlankClickRef = useRef(onBlankClick);
   const onStationClickRef = useRef(onStationClick);
@@ -1198,7 +851,7 @@ function AmapCanvas({
       .then((AMap) => {
         if (cancelled || !containerRef.current) return;
         const map = new AMap.Map(containerRef.current, {
-          center: routePoints.vehicle,
+          center: vehiclePosition,
           zoom: 11.2,
           viewMode: "2D",
           resizeEnable: true,
@@ -1291,19 +944,15 @@ function AmapCanvas({
     if (loadState !== "ready" || !map || !AMap || vehicleMarkerRef.current) return;
 
     const vehicleMarker = new AMap.Marker({
-      position: routeGeometry.vehiclePosition,
+      position: vehiclePosition,
       zIndex: 170,
       offset: new AMap.Pixel(-VEHICLE_MARKER_SIZE / 2, -VEHICLE_MARKER_SIZE / 2),
       extData: "vehicle",
-      content: `
-        <div class="map-vehicle-alert" aria-label="当前车辆">
-          <span class="vehicle-pin"><b>🚗</b></span>
-        </div>
-      `,
+      content: buildVehicleMarkerHtml(),
     });
     vehicleMarkerRef.current = vehicleMarker;
     map.add(vehicleMarker);
-    syncMapOverlaysRef(overlaysRef, stationMarkersRef, vehicleMarkerRef, routeOverlaysRef);
+    syncMapOverlaysRef(overlaysRef, stationMarkersRef, vehicleMarkerRef);
     setOverlaysReady(true);
   }, [loadState]);
 
@@ -1331,7 +980,7 @@ function AmapCanvas({
         position: [station.lng, station.lat],
         title: station.name,
         zIndex: selectedIdRef.current === station.id ? 160 : 140,
-        offset: new AMap.Pixel(-42, -72),
+        offset: new AMap.Pixel(-36, -84),
         extData: "station",
         content: buildStationMarkerHtml(station, selectedIdRef.current === station.id),
       });
@@ -1340,7 +989,7 @@ function AmapCanvas({
     });
 
     stationMarkersRef.current = nextMarkers;
-    syncMapOverlaysRef(overlaysRef, stationMarkersRef, vehicleMarkerRef, routeOverlaysRef);
+    syncMapOverlaysRef(overlaysRef, stationMarkersRef, vehicleMarkerRef);
   }, [loadState, stationLayoutKey]);
 
   useEffect(() => {
@@ -1354,101 +1003,21 @@ function AmapCanvas({
   useEffect(() => {
     const map = mapRef.current;
     const AMap = window.AMap;
-    if (loadState !== "ready" || !map || !AMap) return;
-
-    if (routeOverlaysRef.current.length) {
-      map.remove(routeOverlaysRef.current);
-      routeOverlaysRef.current = [];
-      routeLinesRef.current = {};
-    }
-
-    if (isTaskRunning(taskStage)) {
-      const { overlays, lines } = createRouteOverlays(AMap, routeGeometry);
-      routeOverlaysRef.current = overlays;
-      routeLinesRef.current = lines;
-      map.add(overlays);
-    }
-
-    syncMapOverlaysRef(overlaysRef, stationMarkersRef, vehicleMarkerRef, routeOverlaysRef);
-  }, [loadState, taskStage]);
-
-  useEffect(() => {
-    lastFollowPositionRef.current = null;
-  }, [followVehicle, recenterTick, mapView, vehicleZoomMode]);
-
-  useEffect(() => {
-    if (loadState !== "ready") return undefined;
-
-    let frameId = 0;
-
-    function tick() {
-      const map = mapRef.current;
-      const vehicleMarker = vehicleMarkerRef.current;
-      const geo = routeGeometryRef.current;
-      if (map && vehicleMarker && geo) {
-        const center = resolveMapCenter(geo.vehiclePosition);
-        const { travelledHalo, travelledLine, remainingHalo, remainingLine } = routeLinesRef.current;
-
-        vehicleMarker.setPosition(geo.vehiclePosition);
-
-        if (travelledHalo && travelledLine && remainingHalo && remainingLine) {
-          travelledHalo.setPath(geo.travelled);
-          travelledLine.setPath(geo.travelled);
-          remainingHalo.setPath(geo.remaining);
-          remainingLine.setPath(geo.remaining);
-        }
-
-        const shouldFollow =
-          mapActiveRef.current &&
-          mapViewRef.current === "vehicle" &&
-          vehicleZoomModeRef.current === "street" &&
-          followVehicleRef.current &&
-          isTaskRunning(taskStageRef.current);
-
-        if (shouldFollow && center) {
-          const last = lastFollowPositionRef.current;
-          programmaticMoveRef.current = true;
-          if (!last) {
-            alignVehicleToPaddedCenter(map, center, MAP_VEHICLE_PADDING, 0);
-          } else {
-            panMapWithVehicleDelta(map, last, center);
-          }
-          programmaticMoveRef.current = false;
-          lastFollowPositionRef.current = center;
-        } else if (!shouldFollow) {
-          lastFollowPositionRef.current = null;
-        }
-      }
-
-      frameId = window.requestAnimationFrame(tick);
-    }
-
-    frameId = window.requestAnimationFrame(tick);
-    return () => window.cancelAnimationFrame(frameId);
-  }, [loadState]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    const AMap = window.AMap;
     if (loadState !== "ready" || !overlaysReady || !map || !AMap || !overlaysRef.current.length || !mapActive) return;
-    if (mapView === "vehicle" && !followVehicle) return;
+    if (vehicleZoomMode === "street" && !followVehicle) return;
 
-    const lowSoc = soc <= mapConfig.lowSocThreshold;
     applyMapView(map, AMap, {
-      mapView,
-      taskStage,
       overlaysRef,
-      vehiclePosition: routeGeometry.vehiclePosition,
+      vehiclePosition,
       programmaticMoveRef,
       locationMode,
       rankCount: mapConfig.rankLimit,
-      lowSoc,
       vehicleZoomMode,
     });
-  }, [loadState, overlaysReady, mapView, taskStage, followVehicle, recenterTick, vehicleZoomMode, locationMode, soc, mapConfig]);
+  }, [loadState, overlaysReady, followVehicle, recenterTick, vehicleZoomMode, locationMode, mapConfig, mapActive]);
 
   return (
-    <div className={`amap-layer ${mapView === "route" ? "route-overview" : ""}`}>
+    <div className="amap-layer">
       <div ref={containerRef} className="amap-container" />
       {loadState === "loading" && <div className="amap-status">正在加载高德地图</div>}
       {loadState === "error" && (
@@ -1460,44 +1029,47 @@ function AmapCanvas({
   );
 }
 
-function StationPanel({ station, rank, onNavigate, onDetails, onFeedback, onCopy, onClose }) {
+function StationPanel({ station, onNavigate, onDetails, onCopy, onClose }) {
   return (
     <section className="station-panel">
-      <button className="grabber" aria-label="收起场站卡片" onClick={onClose} />
-      <div className="station-heading">
-        <span className="bolt-dot">电</span>
-        <div>
-          <h2>{station.name}</h2>
-          <div className="pills">
-            {rank > 0 && <span>距离第 {rank} 名</span>}
-            <span>{station.speedLabel} 空闲 {station.availablePiles}/{station.totalPiles}</span>
-            <span>{station.distanceType === "straight" ? "直线距离降级" : "驾车距离"}</span>
-            <span>{station.routeNearbyFlag ? "路线附近" : "需绕行判断"}</span>
-          </div>
+      <button type="button" className="grabber" aria-label="收起场站卡片" onClick={onClose} />
+      <h2 className="station-panel-title">{station.name}</h2>
+      <dl className="station-card-info">
+        <div className="station-card-info-item">
+          <dt>距离</dt>
+          <dd>{station.distanceText}</dd>
         </div>
-      </div>
-      <div className="address-row">
-        <p>{station.address}</p>
-        <button onClick={onCopy}>复制</button>
-      </div>
-      <div className="station-meta">
-        <span><b>距你 {station.distanceText}</b><small>{station.durationMin}分钟 · 当前 {station.priceText}</small></span>
-        <span><b>{station.capacityText}</b><small>承载量</small></span>
-        <span><b>{station.totalPiles} 台</b><small>充电桩</small></span>
-      </div>
+        <div className="station-card-info-item">
+          <dt>当前电价</dt>
+          <dd>{station.priceText}</dd>
+        </div>
+        <div className="station-card-info-item station-card-info-address">
+          <dt>地址</dt>
+          <dd>{station.address}</dd>
+        </div>
+        <div className="station-card-info-item">
+          <dt>承载量</dt>
+          <dd>{station.capacityText}</dd>
+        </div>
+        <div className="station-card-info-item">
+          <dt>充电桩</dt>
+          <dd>{station.totalPiles} 台</dd>
+        </div>
+      </dl>
       <div className="station-actions">
-        <button className="primary-btn" onClick={onNavigate}>导航</button>
-        <button className="secondary-btn" onClick={onDetails}>详情</button>
-        <button className="secondary-btn" onClick={onFeedback}>反馈</button>
+        <button type="button" className="primary-btn" onClick={onNavigate}>导航</button>
+        <button type="button" className="secondary-btn" onClick={onDetails}>详情</button>
+        <button type="button" className="secondary-btn" onClick={onCopy}>复制地址</button>
       </div>
     </section>
   );
 }
 
-function DriverStationListPage({ stations, locationMode, mapConfig }) {
+function DriverStationListPage({ stations, mapConfig }) {
+  const locationMode = DRIVER_LOCATION_MODE;
   const driverStations = useMemo(() => sortStations(stations, locationMode), [stations, locationMode]);
   const runtimeStations = useMemo(() => driverStations.map((station) => getStationRuntime(station, locationMode)), [driverStations, locationMode]);
-  const ranked = locationMode === "none" ? [] : runtimeStations.slice(0, mapConfig.rankLimit);
+  const ranked = runtimeStations.slice(0, mapConfig.rankLimit);
   const [keyword, setKeyword] = useState("");
   const [province, setProvince] = useState("全部省份");
   const [city, setCity] = useState("全部城市");
@@ -1509,7 +1081,7 @@ function DriverStationListPage({ stations, locationMode, mapConfig }) {
     const provinceMatch = province === "全部省份" || station.province === province;
     const cityMatch = city === "全部城市" || station.city === city;
     const distanceLimit = distance === "全部距离" ? Infinity : Number(distance.replace("km", ""));
-    const distanceMatch = locationMode === "none" || station.distanceValue == null || station.distanceValue <= distanceLimit;
+    const distanceMatch = station.distanceValue == null || station.distanceValue <= distanceLimit;
     return textMatch && provinceMatch && cityMatch && distanceMatch;
   });
   const [navStation, setNavStation] = useState(null);
@@ -1556,11 +1128,10 @@ function DriverStationListPage({ stations, locationMode, mapConfig }) {
                   <option key={item} value={item}>{item === "全部城市" ? "全部市" : item}</option>
                 ))}
               </select>
-              <select value={distance} aria-label="距离筛选" onChange={(event) => setDistance(event.target.value)} disabled={locationMode === "none"}>
+              <select value={distance} aria-label="距离筛选" onChange={(event) => setDistance(event.target.value)}>
                 {["10km", "20km", "50km"].map((item) => <option key={item}>{item}</option>)}
               </select>
             </div>
-            {locationMode === "none" && <p className="inline-warning">无定位模式下距离筛选不可用，列表按省市和场站名称排序。</p>}
             <div className="driver-list">
               {filtered.map((station) => {
                 const rank = ranked.findIndex((item) => item.id === station.id) + 1;
@@ -1615,7 +1186,8 @@ function DriverStationListPage({ stations, locationMode, mapConfig }) {
   );
 }
 
-function DriverStationDetailPage({ stationId, stations, locationMode }) {
+function DriverStationDetailPage({ stationId, stations }) {
+  const locationMode = DRIVER_LOCATION_MODE;
   const driverStations = useMemo(() => sortStations(stations, locationMode), [stations, locationMode]);
   const runtimeStations = useMemo(() => driverStations.map((station) => getStationRuntime(station, locationMode)), [driverStations, locationMode]);
   const station = runtimeStations.find((item) => item.id === stationId);
@@ -1630,53 +1202,169 @@ function DriverStationDetailPage({ stationId, stations, locationMode }) {
 
   return (
     <div className="driver-list-page driver-page-overlay" aria-label="场站详情">
-          <header className="driver-page-header">
-            <button type="button" className="page-back" aria-label="返回" onClick={navigateFromStationDetailBack}>
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
-            <h1>场站详情</h1>
-          </header>
-          <div className="driver-list-page-body driver-detail-page-body">
-            {station ? (
-              <StationDetailContent
-                station={station}
-                onNavigate={() => setNavStation(station)}
-                onCopy={() => showToast("已复制地址")}
-                onFeedback={() => returnToDriverMap({ selectedId: station.id, panel: "feedback" })}
-              />
-            ) : (
-              <div className="driver-empty-state">
-                <p>未找到该场站，可能已停用或不存在。</p>
-                <button className="secondary-btn" onClick={navigateFromStationDetailBack}>返回</button>
-              </div>
-            )}
+      <header className="driver-page-header">
+        <button type="button" className="page-back" aria-label="返回" onClick={navigateFromStationDetailBack}>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+        <h1>场站详情</h1>
+      </header>
+      <div className="driver-list-page-body driver-detail-page-body">
+        {station ? (
+          <StationDetailContent station={station} />
+        ) : (
+          <div className="driver-empty-state">
+            <p>未找到该场站，可能已停用或不存在。</p>
+            <button className="secondary-btn" type="button" onClick={navigateFromStationDetailBack}>返回</button>
           </div>
-          <nav className="driver-tabs">
-            {["首页", "地图", "我的"].map((item) => (
-              <button
-                key={item}
-                className={item === "地图" ? "active" : ""}
-                onClick={() => item === "地图" && navigate("/driver")}
-              >
-                {item}
-              </button>
-            ))}
-          </nav>
-          {navStation && (
-            <>
-              <button type="button" className="driver-sheet-backdrop" aria-label="关闭导航选择" onClick={() => setNavStation(null)} />
-              <NavigationSheet
-                station={navStation}
-                onClose={() => setNavStation(null)}
-                onCopy={() => showToast("已复制地址")}
-                showToast={showToast}
-              />
-            </>
-          )}
-          {toast && <div className="toast">{toast}</div>}
+        )}
+      </div>
+      {station && (
+        <div className="driver-detail-actions">
+          <button type="button" className="primary-btn" onClick={() => setNavStation(station)}>导航</button>
+          <button type="button" className="secondary-btn" onClick={() => showToast("已复制地址")}>复制地址</button>
+          <button
+            type="button"
+            className="secondary-btn"
+            onClick={() => navigateToStationFeedback(station.id, `/driver/station/${station.id}`)}
+          >
+            问题反馈
+          </button>
+        </div>
+      )}
+      {navStation && (
+        <>
+          <button type="button" className="driver-sheet-backdrop" aria-label="关闭导航选择" onClick={() => setNavStation(null)} />
+          <NavigationSheet
+            station={navStation}
+            onClose={() => setNavStation(null)}
+            onCopy={() => showToast("已复制地址")}
+            showToast={showToast}
+          />
+        </>
+      )}
+      {toast && <div className="toast">{toast}</div>}
     </div>
+  );
+}
+
+function DriverStationFeedbackPage({ stationId, stations, setFeedback }) {
+  const locationMode = DRIVER_LOCATION_MODE;
+  const driverStations = useMemo(() => sortStations(stations, locationMode), [stations, locationMode]);
+  const runtimeStations = useMemo(() => driverStations.map((station) => getStationRuntime(station, locationMode)), [driverStations, locationMode]);
+  const station = runtimeStations.find((item) => item.id === stationId);
+  const [feedbackType, setFeedbackType] = useState("重卡无法进入");
+  const [feedbackRemark, setFeedbackRemark] = useState("");
+  const [toast, setToast] = useState("");
+
+  function showToast(text) {
+    setToast(text);
+    window.clearTimeout(showToast.timer);
+    showToast.timer = window.setTimeout(() => setToast(""), 2600);
+  }
+
+  function submitFeedback() {
+    if (!station) return;
+    setFeedback((items) => [
+      {
+        id: `FB${Date.now()}`,
+        stationId: station.id,
+        stationName: station.name,
+        type: feedbackType,
+        remark: feedbackRemark || "司机未填写备注",
+        driver: context.driverId,
+        vehicle: context.plateNo,
+        task: context.taskId,
+        status: "待处理",
+        submittedAt: "2026-07-05 13:41",
+        handler: "",
+      },
+      ...items,
+    ]);
+    showToast(`反馈已同步至后台：${feedbackType}`);
+    window.setTimeout(() => navigateFromStationFeedbackBack(), 900);
+  }
+
+  return (
+    <div className="driver-list-page driver-page-overlay" aria-label="问题反馈">
+      <header className="driver-page-header">
+        <button type="button" className="page-back" aria-label="返回" onClick={navigateFromStationFeedbackBack}>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+        <h1>问题反馈</h1>
+      </header>
+      <div className="driver-list-page-body driver-feedback-page-body">
+        {station ? (
+          <article className="driver-feedback-form">
+            <div className="feedback-context">
+              <span>{station.name}</span>
+              <small>{context.driverId} · {context.plateNo} · {context.taskId}</small>
+            </div>
+            <label className="form-label" htmlFor="driver-feedback-type">反馈类型</label>
+            <select
+              id="driver-feedback-type"
+              value={feedbackType}
+              onChange={(event) => setFeedbackType(event.target.value)}
+            >
+              {driverFeedbackTypeOptions.map((item) => (
+                <option key={item}>{item}</option>
+              ))}
+            </select>
+            <label className="form-label" htmlFor="driver-feedback-remark">备注</label>
+            <textarea
+              id="driver-feedback-remark"
+              value={feedbackRemark}
+              onChange={(event) => setFeedbackRemark(event.target.value)}
+              placeholder="补充现场情况，例如入口限高、现场价格、排队情况"
+              rows={5}
+            />
+            <button className="primary-btn full" type="button" onClick={submitFeedback}>提交反馈并同步后台</button>
+          </article>
+        ) : (
+          <div className="driver-empty-state">
+            <p>未找到该场站，可能已停用或不存在。</p>
+            <button className="secondary-btn" type="button" onClick={navigateFromStationFeedbackBack}>返回</button>
+          </div>
+        )}
+      </div>
+      <nav className="driver-tabs">
+        {["首页", "地图", "我的"].map((item) => (
+          <button
+            key={item}
+            type="button"
+            className={item === "地图" ? "active" : ""}
+            onClick={() => item === "地图" && navigate("/driver")}
+          >
+            {item}
+          </button>
+        ))}
+      </nav>
+      {toast && <div className="toast">{toast}</div>}
+    </div>
+  );
+}
+
+function LocateIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" strokeWidth="2" />
+      <path d="M12 3v3M12 18v3M3 12h3M18 12h3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" strokeWidth="1.8" opacity="0.45" />
+    </svg>
+  );
+}
+
+function ChargeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M13 2 6 14h6l-1 8 7-12h-6l1-8z"
+        fill="currentColor"
+      />
+    </svg>
   );
 }
 
@@ -1691,36 +1379,106 @@ function NavIcon() {
   );
 }
 
-function StationDetailContent({ station, onNavigate, onCopy, onFeedback }) {
+function StationDetailContent({ station }) {
+  const mapPinStyle = stationPositions[station.id] ?? { left: "50%", top: "48%" };
+  const pileCount = station.totalPiles ?? station.pileCount ?? "—";
+  const pricePeriods = (station.pricePeriods || []).filter((period) => String(period.price).trim());
+  const stayDurations = (station.stayDurations || []).filter((period) => String(period.durationMin).trim());
+
   return (
-    <article className="details-block">
-      <h3>{station.name}</h3>
-      <p>{station.address}</p>
-      <div className="mini-map-card">
-        <img src="/assets/driver-map-yuxi.png" alt={`${station.name}点位预览`} />
-        <span>当前场站点位预览</span>
-      </div>
-      <div className="info-grid">
-        <span><b>{station.priceText}</b>当前电价</span>
-        <span><b>{station.distanceText}</b>距离</span>
-        <span><b>{station.capacityText}</b>承载量</span>
-        <span><b>{station.totalPiles} 台</b>充电桩</span>
-      </div>
-      <h4>分时电价</h4>
-      {pricePeriods.map((period) => (
-        <p className="kv" key={period.start}>{period.start}-{period.end}<b>{period.price}</b></p>
-      ))}
-      <h4>标准停留时长</h4>
-      {stayDurations.map((period) => (
-        <p className="kv" key={period.start}>{period.start}-{period.end}<b>{period.duration}</b></p>
-      ))}
-      <h4>进站说明</h4>
-      <p>{station.remark}</p>
-      <div className="sheet-actions sticky-actions">
-        <button className="primary-btn" onClick={onNavigate}>导航</button>
-        <button className="secondary-btn" onClick={onCopy}>复制地址</button>
-        <button className="secondary-btn" onClick={onFeedback}>问题反馈</button>
-      </div>
+    <article className="station-detail">
+      <section className="detail-section">
+        <h2 className="detail-section-title">基础信息</h2>
+        <dl className="detail-field-list">
+          <div className="detail-field">
+            <dt>场站名称</dt>
+            <dd>{station.name}</dd>
+          </div>
+          <div className="detail-field">
+            <dt>地址</dt>
+            <dd>{station.address}</dd>
+          </div>
+          <div className="detail-field">
+            <dt>所属省份 / 所属城市 / 所属区</dt>
+            <dd>{station.province} / {station.city} / {station.district}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section className="detail-section">
+        <h2 className="detail-section-title">地图预览</h2>
+        <div className="detail-map-preview">
+          <img src="/assets/driver-map-yuxi.png" alt={`${station.name}点位预览`} />
+          <span className="detail-map-pin" style={mapPinStyle} aria-hidden="true">📍</span>
+          <div className="detail-map-coords">
+            <span>经度 {station.lng}</span>
+            <span>纬度 {station.lat}</span>
+          </div>
+        </div>
+      </section>
+
+      <section className="detail-section">
+        <h2 className="detail-section-title">核心信息</h2>
+        <dl className="detail-field-list detail-field-grid">
+          <div className="detail-field">
+            <dt>当前时段电价</dt>
+            <dd>{station.priceText}</dd>
+          </div>
+          <div className="detail-field">
+            <dt>距离</dt>
+            <dd>{station.distanceText}</dd>
+          </div>
+          <div className="detail-field">
+            <dt>承载量</dt>
+            <dd>{station.capacityText}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section className="detail-section">
+        <h2 className="detail-section-title">充电信息</h2>
+        <dl className="detail-field-list">
+          <div className="detail-field">
+            <dt>充电桩数量</dt>
+            <dd>{pileCount} 台</dd>
+          </div>
+        </dl>
+        <h3 className="detail-subsection-title">完整分时段电价</h3>
+        {pricePeriods.length ? (
+          <ul className="detail-kv-list">
+            {pricePeriods.map((period) => (
+              <li className="detail-kv-row" key={`${period.priceType}-${period.start}-${period.end}`}>
+                <span>{period.priceType} {period.start}-{period.end}</span>
+                <b>{period.price} 元/度</b>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="detail-empty-hint">暂无分时电价</p>
+        )}
+      </section>
+
+      <section className="detail-section">
+        <h2 className="detail-section-title">停留信息</h2>
+        <h3 className="detail-subsection-title">标准停留时长</h3>
+        {stayDurations.length ? (
+          <ul className="detail-kv-list">
+            {stayDurations.map((period) => (
+              <li className="detail-kv-row" key={`${period.start}-${period.end}`}>
+                <span>{period.start}-{period.end}</span>
+                <b>{period.durationMin} 分钟</b>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="detail-empty-hint">暂无标准停留时长</p>
+        )}
+      </section>
+
+      <section className="detail-section">
+        <h2 className="detail-section-title">备注</h2>
+        <p className="detail-remark">{station.remark?.trim() || "暂无说明"}</p>
+      </section>
     </article>
   );
 }
@@ -1769,27 +1527,63 @@ function DriverSheet({ title, children, onClose }) {
   );
 }
 
+const siteMainColumns = [
+  "序号", "区域名称", "区域编号", "区域类型", "类型", "收/发货类型", "所属部门", "共享模式", "半径", "经度", "纬度", "位置",
+];
+const siteScrollColumns = [
+  "所属省份", "所属城市", "所属区", "备注", "开通状态", "账号", "修改人", "修改时间", "启用状态", "结算主体",
+];
+const siteChargeColumns = [
+  "承载量（吨）", "充电桩数量", "电价", "标准停留时长",
+];
+
+function parseAdminRoute(path) {
+  const rest = path.replace(/^\/admin\/?/, "");
+  if (!rest || rest === "stations") return { page: "stations" };
+  if (rest === "stations/feedback") return { page: "feedback" };
+  if (rest === "stations/new") return { page: "form", mode: "new" };
+  const editMatch = rest.match(/^stations\/edit\/(.+)$/);
+  if (editMatch) return { page: "form", mode: "edit", id: editMatch[1] };
+  if (rest === "map-settings") return { page: "map-settings" };
+  return { page: "stations" };
+}
+
+function adminNavigate(subPath) {
+  navigate(subPath ? `/admin/${subPath}` : "/admin/stations");
+}
+
+const adminMenuGroups = [
+  {
+    key: "basic",
+    label: "基础信息",
+    children: [{ key: "stations", label: "站点管理", path: "stations" }],
+  },
+  {
+    key: "rules",
+    label: "规则设置",
+    children: [{ key: "map-settings", label: "场站地图设置", path: "map-settings" }],
+  },
+];
+
+function adminPageTitle(route) {
+  if (route.page === "feedback") return "查看反馈";
+  if (route.page === "form") return route.mode === "new" ? "新增 / 修改站点" : "新增 / 修改站点";
+  if (route.page === "map-settings") return "场站地图设置";
+  return "站点管理";
+}
+
 function AdminApp({
+  path = "/admin",
   stations,
   setStations,
   feedback,
   setFeedback,
   mapConfig,
   setMapConfig,
-  taskStage,
-  setTaskStage,
-  locationMode,
-  setLocationMode,
-  soc,
-  setSoc,
-  lastSync,
-  setLastSync,
 }) {
-  const [section, setSection] = useState("overview");
-  const [selectedId, setSelectedId] = useState(stations[0].id);
-  const [banner, setBanner] = useState("已加载 PRD 第一期业务状态原型");
-  const selected = stations.find((station) => station.id === selectedId) ?? stations[0];
-  const unresolved = feedback.filter((item) => item.status !== "已处理").length;
+  const route = parseAdminRoute(path);
+  const [banner, setBanner] = useState("");
+  const [menuOpen, setMenuOpen] = useState({ basic: true, rules: true });
 
   function showBanner(text) {
     setBanner(text);
@@ -1797,316 +1591,822 @@ function AdminApp({
     showBanner.timer = window.setTimeout(() => setBanner(""), 3200);
   }
 
-  function toggleStation(station) {
-    setStations((items) => items.map((item) => (
-      item.id === station.id ? { ...item, status: item.status === "正常" ? "停用" : "正常", updatedAt: "2026-07-05 13:42" } : item
-    )));
-    showBanner(`${station.shortName} 已${station.status === "正常" ? "停用" : "启用"}，司机端刷新后同步${station.status === "正常" ? "隐藏" : "展示"}`);
-  }
-
-  function publishSync() {
-    setLastSync("13:42:28");
-    showBanner("配置与场站数据已发布同步，司机端可立即预览");
-  }
+  const breadcrumbs = buildAdminBreadcrumbs(route);
+  const pageTitle = adminPageTitle(route);
 
   return (
     <main className="admin-shell">
-      <aside className="admin-sidebar">
-        <div className="brand">
-          <span>重</span>
-          <div><b>重卡充电 TMS</b><small>运营管理平台</small></div>
+      <header className="admin-header">
+        <div className="admin-header-brand">
+          <span>TMS</span>
+          <b>运输管理系统</b>
         </div>
-        {[
-          ["overview", "运营总览"],
-          ["stations", "场站管理"],
-          ["price", "分时电价"],
-          ["stay", "标准停留"],
-          ["feedback", "反馈管理"],
-          ["config", "地图配置"],
-          ["contract", "联动数据"],
-        ].map(([key, label]) => (
-          <button key={key} className={section === key ? "active" : ""} onClick={() => setSection(key)}>
-            {label}
-            {key === "feedback" && unresolved > 0 && <small>{unresolved}</small>}
-          </button>
-        ))}
-        <div className="system-state">
-          <b>系统状态</b>
-          <span>正常运行</span>
-          <strong>{lastSync}</strong>
-          <small>2026-07-05</small>
-        </div>
-      </aside>
+        <button className="admin-header-link" type="button" onClick={() => navigate("/driver")}>预览司机端</button>
+      </header>
+      <div className="admin-body">
+        <aside className="admin-sidebar">
+          {adminMenuGroups.map((group) => (
+            <div className="admin-menu-group" key={group.key}>
+              <button
+                type="button"
+                className="admin-menu-group-toggle"
+                onClick={() => setMenuOpen((current) => ({ ...current, [group.key]: !current[group.key] }))}
+              >
+                <span>{group.label}</span>
+                <i>{menuOpen[group.key] ? "▾" : "▸"}</i>
+              </button>
+              {menuOpen[group.key] && group.children.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  className={isAdminMenuActive(route, item.path) ? "active" : ""}
+                  onClick={() => adminNavigate(item.path)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          ))}
+        </aside>
 
-      <section className="admin-main">
-        <AdminTop title={section === "overview" ? "运营总览" : adminTitle(section)} onPublish={publishSync} />
-        {banner && <div className="admin-banner">{banner}</div>}
-        {section === "overview" && (
-          <AdminOverview
-            stations={stations}
-            feedback={feedback}
-            mapConfig={mapConfig}
-            setSection={setSection}
-            taskStage={taskStage}
-            setTaskStage={setTaskStage}
-            locationMode={locationMode}
-            setLocationMode={setLocationMode}
-            soc={soc}
-            setSoc={setSoc}
-          />
-        )}
-        {section === "stations" && (
-          <StationManagement
-            stations={stations}
-            selected={selected}
-            setSelectedId={setSelectedId}
-            toggleStation={toggleStation}
-            setStations={setStations}
-            showBanner={showBanner}
-          />
-        )}
-        {section === "config" && <ConfigPanel mapConfig={mapConfig} setMapConfig={setMapConfig} showBanner={showBanner} />}
-        {section === "feedback" && <FeedbackPanel feedback={feedback} setFeedback={setFeedback} showBanner={showBanner} />}
-        {section !== "overview" && section !== "stations" && section !== "config" && section !== "feedback" && (
-          <SimpleModule section={section} selected={selected} />
-        )}
-      </section>
+        <section className="admin-main">
+          <AdminTop title={pageTitle} breadcrumbs={breadcrumbs} />
+          {banner && <div className="admin-banner">{banner}</div>}
+          {route.page === "stations" && (
+            <SiteManagementList stations={stations} setStations={setStations} showBanner={showBanner} />
+          )}
+          {route.page === "feedback" && (
+            <SiteFeedbackList feedback={feedback} setFeedback={setFeedback} showBanner={showBanner} />
+          )}
+          {route.page === "form" && (
+            <SiteFormPage
+              mode={route.mode}
+              stationId={route.id}
+              stations={stations}
+              setStations={setStations}
+              showBanner={showBanner}
+            />
+          )}
+          {route.page === "map-settings" && (
+            <MapConfigPanel mapConfig={mapConfig} setMapConfig={setMapConfig} showBanner={showBanner} />
+          )}
+        </section>
+      </div>
     </main>
   );
 }
 
-function adminTitle(section) {
-  return {
-    stations: "场站管理",
-    price: "分时电价",
-    stay: "标准停留",
-    feedback: "反馈管理",
-    config: "地图配置",
-    contract: "联动数据",
-  }[section];
+function isAdminMenuActive(route, menuPath) {
+  if (menuPath === "stations") {
+    return route.page === "stations" || route.page === "feedback" || route.page === "form";
+  }
+  if (menuPath === "map-settings") return route.page === "map-settings";
+  return false;
 }
 
-function AdminTop({ title, onPublish }) {
+function buildAdminBreadcrumbs(route) {
+  if (route.page === "feedback") {
+    return [
+      { label: "基础信息" },
+      { label: "站点管理", action: () => adminNavigate("stations") },
+      { label: "查看反馈", current: true },
+    ];
+  }
+  if (route.page === "form") {
+    return [
+      { label: "基础信息" },
+      { label: "站点管理", action: () => adminNavigate("stations") },
+      { label: "新增 / 修改", current: true },
+    ];
+  }
+  if (route.page === "map-settings") {
+    return [
+      { label: "规则设置" },
+      { label: "场站地图设置", current: true },
+    ];
+  }
+  return [
+    { label: "基础信息" },
+    { label: "站点管理", current: true },
+  ];
+}
+
+function AdminTop({ title, breadcrumbs }) {
   return (
     <header className="admin-top">
-      <div>
-        <h1>{title}</h1>
-        <p>充电场站路线规划运营指挥台</p>
-      </div>
-      <div className="top-actions">
-        <button className="secondary-btn" onClick={() => navigate("/driver")}>预览司机端</button>
-        <button className="primary-btn" onClick={onPublish}>发布同步</button>
-      </div>
+      <nav className="admin-breadcrumb" aria-label="面包屑">
+        {breadcrumbs.map((item, index) => (
+          <span key={`${item.label}-${index}`}>
+            {index > 0 && <i>/</i>}
+            {item.action ? (
+              <button type="button" onClick={item.action}>{item.label}</button>
+            ) : (
+              <span className={item.current ? "current" : ""}>{item.label}</span>
+            )}
+          </span>
+        ))}
+      </nav>
+      <h1>{title}</h1>
     </header>
   );
 }
 
-function AdminOverview({
-  stations,
-  feedback,
-  mapConfig,
-  setSection,
-  taskStage,
-  setTaskStage,
-  locationMode,
-  setLocationMode,
-  soc,
-  setSoc,
-}) {
-  const normal = stations.filter((station) => station.status === "正常").length;
-  const warningCount = stations.filter((item) => item.validation !== "已校验").length;
-  return (
-    <>
-      <section className="overview-grid">
-        <Metric title="可展示正常场站" value={`${normal}/${stations.length}`} helper="状态正常且经纬度完整" tone="success" />
-        <Metric title="SOC 当前状态" value={`${soc}%`} helper={`低/临界 ${mapConfig.lowSocThreshold}% / ${mapConfig.criticalSocThreshold}%`} tone={soc <= mapConfig.lowSocThreshold ? "warning" : "success"} />
-        <Metric title="任务路线状态" value={taskStages[taskStage].label} helper={isTaskRunning(taskStage) ? `自动刷新每 ${mapConfig.autoRefreshSeconds} 秒` : "无运输中自动刷新"} />
-        <Metric title="待处理反馈" value={`${feedback.filter((item) => item.status !== "已处理").length}`} helper={`数据质量预警 ${warningCount} 项`} tone="warning" />
-      </section>
-      <section className="admin-two-col">
-        <article className="operation-card">
-          <header>
-            <h2>司机端联动预览</h2>
-            <button onClick={() => navigate("/driver")}>查看司机端</button>
-          </header>
-          <div className="route-preview">
-            <img src="/assets/driver-map-yuxi.png" alt="司机端地图联动预览" />
-            <div className="route-alert">
-              <b>{soc <= mapConfig.lowSocThreshold ? "低电找站触发" : "SOC 正常"}</b>
-              <span>{context.plateNo} · {taskStages[taskStage].label}</span>
-              <small>正常场站 {normal} 个 · 距离排名前 {mapConfig.rankLimit} 名</small>
-            </div>
-          </div>
-          <div className="overview-stats">
-            <span><b>{stations.length}</b>场站总数</span>
-            <span><b>{normal}</b>司机端展示</span>
-            <span><b>{feedback.length}</b>今日反馈</span>
-            <span><b>{mapConfig.rankLimit}</b>推荐排名</span>
-          </div>
-        </article>
-        <article className="operation-card">
-          <header>
-            <h2>业务状态控制台</h2>
-            <button onClick={() => setSection("config")}>编辑配置</button>
-          </header>
-          <div className="admin-control-group">
-            <label>定位来源</label>
-            <div className="admin-segments">
-              {[
-                ["vehicle", "车辆"],
-                ["phone", "手机"],
-                ["none", "无定位"],
-              ].map(([key, label]) => (
-                <button key={key} className={locationMode === key ? "active" : ""} onClick={() => setLocationMode(key)}>{label}</button>
-              ))}
-            </div>
-          </div>
-          <div className="admin-control-group">
-            <label>任务阶段</label>
-            <div className="admin-segments three">
-              {Object.entries(taskStages).map(([key, item]) => (
-                <button key={key} className={taskStage === key ? "active" : ""} onClick={() => setTaskStage(key)}>{item.label}</button>
-              ))}
-            </div>
-          </div>
-          <div className="admin-control-group">
-            <label>SOC：{soc}%</label>
-            <input type="range" min="10" max="90" value={soc} onChange={(event) => setSoc(Number(event.target.value))} />
-          </div>
-          <ConfigPreview label="距离优先推荐场站数量" value={`${mapConfig.rankLimit} 个`} percent={`${mapConfig.rankLimit * 10}%`} />
-          <ConfigPreview label="自动刷新频率" value={`${mapConfig.autoRefreshSeconds} 秒`} percent="42%" />
-        </article>
-      </section>
-      <section className="admin-two-col compact">
-        <FeedbackPanel feedback={feedback.slice(0, 4)} compact />
-        <DataWarnings stations={stations} />
-      </section>
-    </>
-  );
-}
+const siteFilterDefaults = {
+  name: "",
+  code: "",
+  areaTypes: [],
+  department: "",
+  shareModes: [],
+  shipReceiveType: "",
+  statuses: [],
+  settlementEntity: "",
+};
 
-function Metric({ title, value, helper, tone }) {
-  return (
-    <article className={`metric ${tone ?? ""}`}>
-      <span />
-      <div>
-        <p>{title}</p>
-        <h2>{value}</h2>
-        <small>{helper}</small>
-      </div>
-    </article>
-  );
-}
+const areaTypeOptions = ["点", "区域", "行政区域"];
+const shareModeOptions = ["全局", "部门", "个人"];
+const statusOptions = ["未开通", "未登录", "已登录", "已停用"];
 
-function ConfigPreview({ label, value, percent }) {
+function FilterMultiSelect({ label, value, options, onChange, placeholder = "请选择" }) {
+  const [open, setOpen] = useState(false);
+  const [keyword, setKeyword] = useState("");
+  const rootRef = useRef(null);
+
+  useEffect(() => {
+    function handlePointerDown(event) {
+      if (!rootRef.current?.contains(event.target)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, []);
+
+  const visibleOptions = options.filter((option) => option.includes(keyword.trim()));
+  const allSelected = visibleOptions.length > 0 && visibleOptions.every((option) => value.includes(option));
+  const displayText = value.length === 0 ? placeholder : value.join("、");
+
+  function toggleOption(option) {
+    onChange(value.includes(option) ? value.filter((item) => item !== option) : [...value, option]);
+  }
+
+  function toggleAll() {
+    if (allSelected) {
+      onChange(value.filter((item) => !visibleOptions.includes(item)));
+      return;
+    }
+    onChange([...new Set([...value, ...visibleOptions])]);
+  }
+
   return (
-    <div className="config-preview">
-      <p><b>{label}</b><span>{value}</span></p>
-      <div><i style={{ width: percent }} /></div>
+    <div className="filter-multiselect" ref={rootRef}>
+      <span className="filter-multiselect-label">{label}</span>
+      <button type="button" className={`filter-multiselect-trigger ${open ? "open" : ""}`} onClick={() => setOpen((current) => !current)}>
+        <span className={value.length === 0 ? "placeholder" : ""}>{displayText}</span>
+        <i>{open ? "▴" : "▾"}</i>
+      </button>
+      {open && (
+        <div className="filter-multiselect-panel">
+          <div className="filter-multiselect-search">
+            <span aria-hidden="true">⌕</span>
+            <input
+              value={keyword}
+              onChange={(event) => setKeyword(event.target.value)}
+              placeholder="请输入关键字搜索"
+            />
+          </div>
+          <div className="filter-multiselect-options">
+            <button type="button" className="filter-multiselect-option" onClick={toggleAll}>
+              <input type="checkbox" readOnly tabIndex={-1} checked={allSelected} />
+              <span>全选</span>
+            </button>
+            {visibleOptions.map((option) => (
+              <button
+                type="button"
+                key={option}
+                className="filter-multiselect-option"
+                onClick={() => toggleOption(option)}
+              >
+                <input type="checkbox" readOnly tabIndex={-1} checked={value.includes(option)} />
+                <span>{option}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function StationManagement({ stations, selected, setSelectedId, toggleStation, setStations, showBanner }) {
-  function completePrice() {
-    setStations((items) => items.map((item) => item.id === selected.id ? { ...item, priceText: item.priceText.includes("暂无") ? "0.83 元/度" : item.priceText, validation: "已校验" } : item));
-    showBanner(`${selected.shortName} 的价格和校验状态已更新`);
+function SiteManagementList({ stations, setStations, showBanner }) {
+  const [filters, setFilters] = useState(siteFilterDefaults);
+  const [appliedFilters, setAppliedFilters] = useState(siteFilterDefaults);
+
+  function deleteStation(station) {
+    setStations((items) => items.filter((item) => item.id !== station.id));
+    showBanner(`已删除：${station.name}`);
+  }
+
+  function toggleStationStatus(station) {
+    const isEnabled = (station.enabledStatus || (station.status === "正常" ? "启用" : "停用")) === "启用";
+    const nextEnabled = isEnabled ? "停用" : "启用";
+    const statusFields = syncStationStatusFields(nextEnabled, station.accountStatus);
+    setStations((items) => items.map((item) => (
+      item.id === station.id
+        ? {
+          ...item,
+          ...statusFields,
+          updatedAt: "2026-07-07 10:30",
+          editor: "张运营",
+        }
+        : item
+    )));
+    showBanner(`${station.name} 已${nextEnabled}`);
+  }
+
+  const filtered = useMemo(() => stations.filter((station) => {
+    if (appliedFilters.name && !station.name.includes(appliedFilters.name)) return false;
+    if (appliedFilters.code && !station.code.includes(appliedFilters.code)) return false;
+    if (appliedFilters.areaTypes.length > 0 && !appliedFilters.areaTypes.includes(station.areaType)) return false;
+    if (appliedFilters.department && station.department !== appliedFilters.department) return false;
+    if (appliedFilters.shareModes.length > 0 && !appliedFilters.shareModes.includes(station.shareMode)) return false;
+    if (appliedFilters.shipReceiveType && station.shipReceiveType !== appliedFilters.shipReceiveType) return false;
+    if (appliedFilters.statuses.length > 0 && !appliedFilters.statuses.includes(station.accountStatus)) return false;
+    if (appliedFilters.settlementEntity && !station.settlementEntity.includes(appliedFilters.settlementEntity)) return false;
+    return true;
+  }), [stations, appliedFilters]);
+
+  function renderSiteCell(station, index, column) {
+    switch (column) {
+      case "序号":
+        return index + 1;
+      case "区域名称":
+        return station.name;
+      case "区域编号":
+        return station.code;
+      case "区域类型":
+        return station.areaType;
+      case "类型":
+        return station.stationType;
+      case "收/发货类型":
+        return station.shipReceiveType;
+      case "所属部门":
+        return station.department;
+      case "共享模式":
+        return station.shareMode;
+      case "半径":
+        return station.radius;
+      case "经度":
+        return station.lng;
+      case "纬度":
+        return station.lat;
+      case "位置":
+        return <span className="cell-address">{station.address}</span>;
+      case "所属省份":
+        return station.province;
+      case "所属城市":
+        return station.city;
+      case "所属区":
+        return station.district;
+      case "备注":
+        return station.remark ? <span className="cell-remark">{station.remark}</span> : "—";
+      case "开通状态":
+        return station.openStatus;
+      case "账号":
+        return station.account;
+      case "修改人":
+        return station.editor;
+      case "修改时间":
+        return station.updatedAt;
+      case "启用状态":
+        return <span className={`status ${station.enabledStatus === "启用" ? "ok" : "off"}`}>{station.enabledStatus}</span>;
+      case "结算主体":
+        return station.settlementEntity;
+      case "承载量（吨）":
+        return station.capacityText.replace(" 吨", "");
+      case "充电桩数量":
+        return station.totalPiles;
+      case "电价":
+        return station.priceText;
+      case "标准停留时长":
+        return station.stayDurationText;
+      default:
+        return "—";
+    }
   }
 
   return (
-    <section className="station-management">
+    <section className="site-management">
       <article className="table-card">
         <header className="table-toolbar">
-          <div>
-            <h2>场站列表</h2>
-            <p>司机端仅展示正常状态且经纬度完整的充电场站。</p>
-          </div>
-          <div>
-            <input placeholder="搜索场站名称/编码/地址" />
-            <button className="secondary-btn" onClick={() => showBanner("Excel 导入失败：分时电价未覆盖 00:00-24:00")}>Excel 导入</button>
-            <button className="primary-btn" onClick={() => showBanner("新增场站表单已进入字段校验流程")}>新增场站</button>
+          <p className="table-desc">继续用于维护平台站点基础数据。本期充电场站地图功能复用该页面中的充电场站数据，司机端仅展示满足条件的正常充电场站。</p>
+          <div className="table-toolbar-actions">
+            <button className="secondary-btn" type="button" onClick={() => adminNavigate("stations/feedback")}>查看反馈</button>
+            <button className="secondary-btn" type="button" onClick={() => showBanner("Excel 导入失败：分时电价未覆盖 00:00-24:00")}>导入</button>
+            <button className="primary-btn" type="button" onClick={() => adminNavigate("stations/new")}>新增</button>
           </div>
         </header>
-        <table>
+
+        <form
+          className="filter-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            setAppliedFilters({ ...filters });
+          }}
+        >
+          <label><span>区域名称</span><input placeholder="站点/场站名称" value={filters.name} onChange={(e) => setFilters((f) => ({ ...f, name: e.target.value }))} /></label>
+          <label><span>区域编号</span><input value={filters.code} onChange={(e) => setFilters((f) => ({ ...f, code: e.target.value }))} /></label>
+          <FilterMultiSelect
+            label="区域类型"
+            value={filters.areaTypes}
+            options={areaTypeOptions}
+            onChange={(areaTypes) => setFilters((f) => ({ ...f, areaTypes }))}
+          />
+          <label>
+            <span>所属部门</span>
+            <select value={filters.department} onChange={(e) => setFilters((f) => ({ ...f, department: e.target.value }))}>
+              <option value="">全部</option>
+              <option value="玉溪运营部">玉溪运营部</option>
+            </select>
+          </label>
+          <FilterMultiSelect
+            label="共享模式"
+            value={filters.shareModes}
+            options={shareModeOptions}
+            onChange={(shareModes) => setFilters((f) => ({ ...f, shareModes }))}
+          />
+          <label>
+            <span>收/发货类型</span>
+            <select value={filters.shipReceiveType} onChange={(e) => setFilters((f) => ({ ...f, shipReceiveType: e.target.value }))}>
+              <option value="">全部</option>
+              <option value="收/发货">收/发货</option>
+            </select>
+          </label>
+          <FilterMultiSelect
+            label="状态"
+            value={filters.statuses}
+            options={statusOptions}
+            onChange={(statuses) => setFilters((f) => ({ ...f, statuses }))}
+          />
+          <label><span>结算主体</span><input value={filters.settlementEntity} onChange={(e) => setFilters((f) => ({ ...f, settlementEntity: e.target.value }))} /></label>
+          <div className="filter-form-actions">
+            <button type="button" className="secondary-btn" onClick={() => { setFilters(siteFilterDefaults); setAppliedFilters(siteFilterDefaults); }}>重置</button>
+            <button type="submit" className="primary-btn">查询</button>
+          </div>
+        </form>
+
+        <div className="table-scroll-wrap">
+          <table className="site-table">
+            <thead>
+              <tr>
+                {siteMainColumns.map((label) => (
+                  <th
+                    key={`main-${label}`}
+                    className={label === "序号" ? "sticky-col" : label === "区域名称" ? "sticky-col-2" : ""}
+                  >
+                    {label}
+                  </th>
+                ))}
+                {siteScrollColumns.map((label) => <th key={`scroll-${label}`}>{label}</th>)}
+                {siteChargeColumns.map((label) => <th key={`charge-${label}`}>{label}</th>)}
+                <th className="sticky-col-right">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((station, index) => {
+                const isEnabled = (station.enabledStatus || (station.status === "正常" ? "启用" : "停用")) === "启用";
+                return (
+                <tr key={station.id}>
+                  {siteMainColumns.map((column) => (
+                    <td
+                      key={`${station.id}-${column}`}
+                      className={column === "序号" ? "sticky-col" : column === "区域名称" ? "sticky-col-2" : column === "位置" ? "cell-address" : ""}
+                    >
+                      {renderSiteCell(station, index, column)}
+                    </td>
+                  ))}
+                  {siteScrollColumns.map((column) => (
+                    <td key={`${station.id}-${column}`}>{renderSiteCell(station, index, column)}</td>
+                  ))}
+                  {siteChargeColumns.map((column) => (
+                    <td key={`${station.id}-${column}`}>{renderSiteCell(station, index, column)}</td>
+                  ))}
+                  <td className="sticky-col-right row-actions">
+                    <div className="row-actions-inner">
+                      <button type="button" className="link-btn" onClick={() => adminNavigate(`stations/edit/${station.id}`)}>修改</button>
+                      <button
+                        type="button"
+                        className={isEnabled ? "link-btn warn" : "link-btn"}
+                        onClick={() => toggleStationStatus(station)}
+                      >
+                        {isEnabled ? "停用" : "启用"}
+                      </button>
+                      <button type="button" className="link-btn danger" onClick={() => deleteStation(station)}>删除</button>
+                    </div>
+                  </td>
+                </tr>
+              );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <footer className="table-footer">共 {filtered.length} 条</footer>
+      </article>
+    </section>
+  );
+}
+
+function SiteFeedbackList({ feedback, setFeedback, showBanner }) {
+  function updateStatus(id, status) {
+    setFeedback((items) => items.map((item) => (
+      item.id === id ? { ...item, status, handler: "运营-王" } : item
+    )));
+    showBanner(`反馈已更新为：${status}`);
+  }
+
+  return (
+    <section className="site-feedback-page">
+      <article className="table-card">
+        <header className="table-toolbar">
+          <p className="table-desc">司机端提交的场站相关反馈。</p>
+          <div className="table-toolbar-actions">
+            <button className="secondary-btn" type="button" onClick={() => adminNavigate("stations")}>返回站点管理</button>
+          </div>
+        </header>
+        <table className="feedback-table">
           <thead>
             <tr>
-              <th>场站名称</th>
+              <th>序号</th>
+              <th>反馈编号</th>
+              <th>反馈类型</th>
+              <th>反馈内容</th>
+              <th>关联场站</th>
+              <th>车辆</th>
+              <th>任务编号</th>
+              <th>提交时间</th>
+              <th>处理人</th>
               <th>状态</th>
-              <th>当前电价</th>
-              <th>承载量</th>
-              <th>充电桩</th>
-              <th>省/市</th>
-              <th>校验状态</th>
               <th>操作</th>
             </tr>
           </thead>
           <tbody>
-            {stations.map((station) => (
-              <tr key={station.id} className={selected.id === station.id ? "selected-row" : ""}>
-                <td><b>{station.name}</b><small>{station.code}</small></td>
-                <td><span className={`status ${station.status === "正常" ? "ok" : "off"}`}>{station.status}</span></td>
-                <td>{station.priceText}</td>
-                <td>{station.capacityText}</td>
-                <td>{station.availablePiles}/{station.totalPiles}</td>
-                <td>{station.province}<small>{station.city}</small></td>
-                <td><span className={`validate ${station.validation === "已校验" ? "" : "warn"}`}>{station.validation}</span></td>
-                <td>
-                  <button onClick={() => setSelectedId(station.id)}>查看</button>
-                  <button onClick={() => toggleStation(station)}>{station.status === "正常" ? "停用" : "启用"}</button>
+            {feedback.map((item, index) => (
+              <tr key={item.id}>
+                <td>{index + 1}</td>
+                <td>{item.id}</td>
+                <td><span className="tag">{item.type}</span></td>
+                <td className="cell-remark">{item.remark}</td>
+                <td>{item.stationName}</td>
+                <td>{item.vehicle}</td>
+                <td>{item.task}</td>
+                <td>{item.submittedAt}</td>
+                <td>{item.handler || "—"}</td>
+                <td><span className={`validate ${item.status === "已处理" ? "done" : ""}`}>{item.status}</span></td>
+                <td className="row-actions">
+                  <button type="button" onClick={() => updateStatus(item.id, "处理中")}>处理</button>
+                  <button type="button" onClick={() => updateStatus(item.id, "已处理")}>完成</button>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </article>
-      <aside className="detail-drawer">
-        <h2>场站详情</h2>
-        <h3>{selected.name}</h3>
-        <span className={`status ${selected.status === "正常" ? "ok" : "off"}`}>{selected.status}</span>
-        <div className="drawer-section">
-          <p><b>地址</b>{selected.address}</p>
-          <p><b>经纬度</b>{selected.lng}, {selected.lat}</p>
-          <p><b>承载量</b>{selected.capacityText}</p>
-          <p><b>充电桩</b>{selected.totalPiles} 台，空闲 {selected.availablePiles} 台</p>
-          <p><b>数据更新时间</b>{selected.updatedAt}</p>
-        </div>
-        <h4>字段校验</h4>
-        <div className="validation-list">
-          <span className={selected.lng && selected.lat ? "pass" : "fail"}>经纬度必填</span>
-          <span className={selected.priceText.includes("暂无") ? "fail" : "pass"}>价格必填</span>
-          <span className={selected.capacityText.includes("暂无") ? "fail" : "pass"}>承载量完整</span>
-        </div>
-        <div className="drawer-actions">
-          <button className="secondary-btn" onClick={completePrice}>补全并校验</button>
-          <button className="primary-btn" onClick={() => toggleStation(selected)}>{selected.status === "正常" ? "停用场站" : "启用场站"}</button>
-        </div>
-        <h4>司机端 API 返回示例</h4>
-        <pre>{JSON.stringify({
-          stationId: selected.id,
-          stationName: selected.name,
-          currentPriceText: selected.priceText,
-          distanceType: selected.drivingKm == null ? "straight" : "driving",
-          capacityText: selected.capacityText,
-          pileCount: selected.totalPiles,
-          stationStatus: selected.status,
-        }, null, 2)}</pre>
-      </aside>
     </section>
   );
 }
 
-function ConfigPanel({ mapConfig, setMapConfig, showBanner }) {
+const emptySiteForm = {
+  name: "",
+  autoCode: "",
+  code: "",
+  areaType: "点",
+  stationType: "充电站",
+  shipReceiveType: "收/发货",
+  capacityText: "",
+  department: "玉溪运营部",
+  shareMode: "全局",
+  radius: 500,
+  pricePeriods: [createPricePeriod()],
+  totalPiles: 4,
+  stayDurations: [createStayDuration({ durationMin: 60 })],
+  settlementEntity: "玉溪物流能源有限公司",
+  lng: "",
+  lat: "",
+  address: "",
+  province: "云南省",
+  city: "玉溪市",
+  district: "",
+  remark: "",
+  status: "正常",
+  accountStatus: "已登录",
+  enabledStatus: "启用",
+  openStatus: "已开通",
+  account: "tms_yx_ops",
+  editor: "张运营",
+  validation: "待校验",
+  availablePiles: 4,
+  pileCount: 4,
+  shortName: "",
+  drivingKm: null,
+  straightKm: null,
+  durationMin: 20,
+  routeNearbyFlag: false,
+  speedLabel: "快充",
+  updatedAt: "2026-07-07 10:30",
+};
+
+function SiteFormPage({ mode, stationId, stations, setStations, showBanner }) {
+  const existing = mode === "edit" ? stations.find((item) => item.id === stationId) : null;
+  const [form, setForm] = useState(() => (
+    existing
+      ? {
+        ...existing,
+        capacityTon: existing.capacityText.replace(/[^\d.]/g, "") || "",
+        enabledStatus: existing.enabledStatus || (existing.status === "正常" ? "启用" : "停用"),
+        pricePeriods: existing.pricePeriods?.length ? existing.pricePeriods : [createPricePeriod()],
+        stayDurations: existing.stayDurations?.length ? existing.stayDurations : [createStayDuration({ durationMin: 45 })],
+      }
+      : { ...emptySiteForm, capacityTon: "" }
+  ));
+
+  function updateField(key, value) {
+    setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function updatePricePeriod(index, key, value) {
+    setForm((current) => ({
+      ...current,
+      pricePeriods: current.pricePeriods.map((period, itemIndex) => (
+        itemIndex === index ? { ...period, [key]: value } : period
+      )),
+    }));
+  }
+
+  function updateStayDuration(index, key, value) {
+    setForm((current) => ({
+      ...current,
+      stayDurations: current.stayDurations.map((period, itemIndex) => (
+        itemIndex === index ? { ...period, [key]: value } : period
+      )),
+    }));
+  }
+
+  function addPricePeriod() {
+    setForm((current) => ({
+      ...current,
+      pricePeriods: [...current.pricePeriods, createPricePeriod()],
+    }));
+  }
+
+  function removePricePeriod(index) {
+    setForm((current) => ({
+      ...current,
+      pricePeriods: current.pricePeriods.length > 1
+        ? current.pricePeriods.filter((_, itemIndex) => itemIndex !== index)
+        : current.pricePeriods,
+    }));
+  }
+
+  function addStayDuration() {
+    setForm((current) => ({
+      ...current,
+      stayDurations: [...current.stayDurations, createStayDuration()],
+    }));
+  }
+
+  function removeStayDuration(index) {
+    setForm((current) => ({
+      ...current,
+      stayDurations: current.stayDurations.length > 1
+        ? current.stayDurations.filter((_, itemIndex) => itemIndex !== index)
+        : current.stayDurations,
+    }));
+  }
+
+  function updateEnabledStatus(enabledStatus) {
+    setForm((current) => ({
+      ...current,
+      ...syncStationStatusFields(enabledStatus, current.accountStatus),
+    }));
+  }
+
+  function handleSave() {
+    if (!form.name.trim()) {
+      showBanner("请填写站点名称");
+      return;
+    }
+    if (!form.capacityTon) {
+      showBanner("承载量为必填项");
+      return;
+    }
+    if (!form.lng || !form.lat) {
+      showBanner("请维护经纬度，用于地图展示与导航");
+      return;
+    }
+    if (!form.pricePeriods.some((period) => String(period.price).trim())) {
+      showBanner("请至少维护一条充电价格");
+      return;
+    }
+    if (!form.totalPiles) {
+      showBanner("请填写充电桩数量");
+      return;
+    }
+    if (!form.stayDurations.some((period) => String(period.durationMin).trim())) {
+      showBanner("请至少维护一条标准停留时长");
+      return;
+    }
+
+    const pricePeriods = form.pricePeriods.map((period) => ({
+      ...period,
+      price: String(period.price).trim(),
+    }));
+    const stayDurations = form.stayDurations.map((period) => ({
+      ...period,
+      durationMin: Number(period.durationMin),
+    }));
+    const priceText = derivePriceText(pricePeriods);
+    const stayDurationText = deriveStayDurationText(stayDurations);
+    const statusFields = syncStationStatusFields(form.enabledStatus, form.accountStatus);
+
+    const payload = {
+      ...form,
+      ...statusFields,
+      pricePeriods,
+      stayDurations,
+      priceText,
+      stayDurationText,
+      shortName: form.shortName || form.name.slice(0, 6),
+      capacityText: `${form.capacityTon} 吨`,
+      pileCount: Number(form.totalPiles),
+      availablePiles: Number(form.availablePiles ?? form.totalPiles),
+      lng: Number(form.lng),
+      lat: Number(form.lat),
+      radius: Number(form.radius),
+      totalPiles: Number(form.totalPiles),
+      updatedAt: "2026-07-07 10:30",
+      editor: "张运营",
+      validation: priceText.includes("暂无") ? "待补价格" : "已校验",
+    };
+
+    if (mode === "edit" && existing) {
+      setStations((items) => items.map((item) => (item.id === existing.id ? { ...item, ...payload } : item)));
+      showBanner(`${form.name} 已保存`);
+      adminNavigate("stations");
+      return;
+    }
+
+    const newId = `ST${String(stations.length + 1).padStart(3, "0")}`;
+    setStations((items) => [...items, {
+      ...payload,
+      id: newId,
+      code: form.code || `CS${String(stations.length + 236).padStart(6, "0")}`,
+    }]);
+    showBanner("新站点已创建");
+    adminNavigate("stations");
+  }
+
+  return (
+    <section className="site-form-page">
+      <article className="operation-card site-form-card">
+        <header className="site-form-head">
+          <p className="table-desc">沿用现有地图标注能力，运营人员可通过地图标注或经纬度字段维护站点位置。司机端使用经纬度进行地图点位展示、距离计算和外部导航。</p>
+          <div className="table-toolbar-actions">
+            <button className="secondary-btn" type="button" onClick={() => adminNavigate("stations")}>取消</button>
+            <button className="primary-btn" type="button" onClick={handleSave}>保存</button>
+          </div>
+        </header>
+
+        <div className="site-form-layout">
+          <div className="site-form-fields">
+            <div className="form-grid">
+              <label><span>名称 <em>*</em></span><input value={form.name} onChange={(e) => updateField("name", e.target.value)} placeholder="司机端展示为场站名称" /></label>
+              <label><span>自编号</span><input value={form.autoCode} onChange={(e) => updateField("autoCode", e.target.value)} /></label>
+              <label>
+                <span>类型</span>
+                <select value={form.stationType} onChange={(e) => updateField("stationType", e.target.value)}>
+                  <option value="充电站">充电站</option>
+                  <option value="换电站">换电站</option>
+                  <option value="物流园">物流园</option>
+                </select>
+              </label>
+              <label>
+                <span>启用状态 <em>*</em></span>
+                <select value={form.enabledStatus} onChange={(e) => updateEnabledStatus(e.target.value)}>
+                  <option value="启用">启用</option>
+                  <option value="停用">停用</option>
+                </select>
+              </label>
+              <p className="form-field-hint span-2">停用后司机端地图与列表不再展示该场站，列表中的开通状态、启用状态会同步更新。</p>
+              <label><span>承载量 <em>*</em></span><input value={form.capacityTon} onChange={(e) => updateField("capacityTon", e.target.value)} placeholder="必填，单位：吨" /></label>
+              <label>
+                <span>所属部门</span>
+                <select value={form.department} onChange={(e) => updateField("department", e.target.value)}>
+                  <option value="玉溪运营部">玉溪运营部</option>
+                </select>
+              </label>
+              <label>
+                <span>共享模式</span>
+                <select value={form.shareMode} onChange={(e) => updateField("shareMode", e.target.value)}>
+                  <option value="全局">全局</option>
+                  <option value="部门">部门</option>
+                  <option value="个人">个人</option>
+                </select>
+              </label>
+              <label><span>半径</span><input type="number" value={form.radius} onChange={(e) => updateField("radius", e.target.value)} placeholder="后台保留，司机端第一期不使用" /></label>
+
+              <div className="period-editor span-2">
+                <div className="period-editor-head">
+                  <span>充电价格 <em>*</em></span>
+                  <button type="button" className="period-add-btn" onClick={addPricePeriod} aria-label="添加充电价格">+</button>
+                </div>
+                <div className="period-editor-rows">
+                  {form.pricePeriods.map((period, index) => (
+                    <div className="period-editor-row" key={`price-${index}`}>
+                      <select value={period.priceType} onChange={(e) => updatePricePeriod(index, "priceType", e.target.value)}>
+                        {priceTypeOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                      </select>
+                      <input type="time" value={period.start} onChange={(e) => updatePricePeriod(index, "start", e.target.value)} />
+                      <span className="period-range-sep">至</span>
+                      <input type="time" value={period.end} onChange={(e) => updatePricePeriod(index, "end", e.target.value)} />
+                      <div className="period-value-input">
+                        <input type="number" step="0.01" min="0" value={period.price} onChange={(e) => updatePricePeriod(index, "price", e.target.value)} placeholder="0.8" />
+                        <i>元</i>
+                      </div>
+                      <button type="button" className="period-remove-btn" onClick={() => removePricePeriod(index)} aria-label="删除充电价格">×</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <label className="period-single-field">
+                <span>充电桩数量 <em>*</em></span>
+                <div className="period-value-input">
+                  <input type="number" min="1" value={form.totalPiles} onChange={(e) => updateField("totalPiles", e.target.value)} />
+                  <i>台</i>
+                </div>
+              </label>
+
+              <div className="period-editor span-2">
+                <div className="period-editor-head">
+                  <span>标准停留时长 <em>*</em></span>
+                  <button type="button" className="period-add-btn" onClick={addStayDuration} aria-label="添加标准停留时长">+</button>
+                </div>
+                <div className="period-editor-rows">
+                  {form.stayDurations.map((period, index) => (
+                    <div className="period-editor-row stay-row" key={`stay-${index}`}>
+                      <input type="time" value={period.start} onChange={(e) => updateStayDuration(index, "start", e.target.value)} />
+                      <span className="period-range-sep">至</span>
+                      <input type="time" value={period.end} onChange={(e) => updateStayDuration(index, "end", e.target.value)} />
+                      <div className="period-value-input">
+                        <input type="number" min="1" value={period.durationMin} onChange={(e) => updateStayDuration(index, "durationMin", e.target.value)} placeholder="60" />
+                        <i>min</i>
+                      </div>
+                      <button type="button" className="period-remove-btn" onClick={() => removeStayDuration(index)} aria-label="删除标准停留时长">×</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <label><span>结算主体名称</span><input value={form.settlementEntity} onChange={(e) => updateField("settlementEntity", e.target.value)} /></label>
+              <label><span>经度 <em>*</em></span><input value={form.lng} onChange={(e) => updateField("lng", e.target.value)} /></label>
+              <label><span>纬度 <em>*</em></span><input value={form.lat} onChange={(e) => updateField("lat", e.target.value)} /></label>
+              <label className="span-2"><span>位置</span><input value={form.address} onChange={(e) => updateField("address", e.target.value)} placeholder="地址展示、复制地址、导航使用" /></label>
+              <label><span>所属省份</span><input value={form.province} onChange={(e) => updateField("province", e.target.value)} /></label>
+              <label><span>所属城市</span><input value={form.city} onChange={(e) => updateField("city", e.target.value)} /></label>
+              <label><span>所属区</span><input value={form.district} onChange={(e) => updateField("district", e.target.value)} /></label>
+              <label className="span-2"><span>备注</span><textarea rows={3} value={form.remark} onChange={(e) => updateField("remark", e.target.value)} placeholder="详情页展示为进站说明 / 注意事项" /></label>
+            </div>
+          </div>
+
+          <aside className="site-form-map">
+            <h3>地图标注</h3>
+            <div className="map-annotate-panel">
+              <img src="/assets/driver-map-yuxi.png" alt="站点地图标注" />
+              {form.lng && form.lat && (
+                <span className="map-pin" style={{ left: "52%", top: "48%" }} aria-hidden="true">📍</span>
+              )}
+              {form.radius && <span className="map-radius-circle" aria-hidden="true" />}
+              <div className="map-radius-hint">
+                <b>半径范围 {form.radius}m</b>
+                <small>后台保留地图范围展示；司机端第一期不使用半径做场站范围展示、到站识别或充电状态判断</small>
+              </div>
+            </div>
+            <div className="map-coord-preview">
+              <span>经度 {form.lng || "—"}</span>
+              <span>纬度 {form.lat || "—"}</span>
+            </div>
+          </aside>
+        </div>
+      </article>
+    </section>
+  );
+}
+
+function MapConfigPanel({ mapConfig, setMapConfig, showBanner }) {
   const fields = [
     ["rankLimit", "距离排名数量", 1, 10, "个"],
-    ["lowSocThreshold", "SOC 低电提醒阈值", 10, 60, "%"],
-    ["criticalSocThreshold", "严重低电阈值", 5, 30, "%"],
-    ["autoRefreshSeconds", "运输中自动刷新频率", 10, 120, "秒"],
     ["manualRefreshCooldownSeconds", "手动刷新限制时间", 5, 60, "秒"],
   ];
   return (
     <section className="operation-card config-card">
-      <h2>地图展示配置</h2>
-      <p>配置会影响司机端地图点位排名、低电提醒、刷新限制和运输中自动刷新状态。</p>
+      <p className="table-desc">配置司机端地图展示相关规则。</p>
       {fields.map(([key, label, min, max, unit]) => (
         <label className="range-row" key={key}>
           <span>{label}</span>
@@ -2120,106 +2420,7 @@ function ConfigPanel({ mapConfig, setMapConfig, showBanner }) {
           <b>{mapConfig[key]} {unit}</b>
         </label>
       ))}
-      <button className="primary-btn" onClick={() => showBanner("地图配置已保存，发布同步后司机端刷新生效")}>保存配置</button>
-    </section>
-  );
-}
-
-function FeedbackPanel({ feedback, setFeedback, compact, showBanner }) {
-  function updateStatus(id, status) {
-    if (!setFeedback) return;
-    setFeedback((items) => items.map((item) => item.id === id ? { ...item, status, handler: "运营-王" } : item));
-    showBanner?.(`反馈已更新为：${status}`);
-  }
-
-  return (
-    <article className="operation-card">
-      <header>
-        <h2>反馈待处理队列</h2>
-        {!compact && <button>导出</button>}
-      </header>
-      <table className="small-table">
-        <thead>
-          <tr><th>类型</th><th>反馈内容</th><th>场站/车辆</th><th>状态</th><th>操作</th></tr>
-        </thead>
-        <tbody>
-          {feedback.map((item) => (
-            <tr key={item.id}>
-              <td><span className="tag">{item.type}</span></td>
-              <td>{item.remark}</td>
-              <td>{item.stationName}<small>{item.vehicle} · {item.task}</small></td>
-              <td><span className={`validate ${item.status === "已处理" ? "done" : ""}`}>{item.status}</span></td>
-              <td>
-                {setFeedback ? (
-                  <>
-                    <button onClick={() => updateStatus(item.id, "处理中")}>处理</button>
-                    <button onClick={() => updateStatus(item.id, "已处理")}>完成</button>
-                  </>
-                ) : (
-                  <button>查看</button>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </article>
-  );
-}
-
-function DataWarnings({ stations }) {
-  const warnings = stations.filter((item) => item.validation !== "已校验");
-  return (
-    <article className="operation-card">
-      <header><h2>场站数据质量预警</h2><button>查看说明</button></header>
-      <div className="warning-strip">
-        <span><b>{stations.filter((item) => item.priceText.includes("暂无")).length}</b>待补价格</span>
-        <span><b>{stations.filter((item) => item.status === "停用").length}</b>停用场站</span>
-        <span><b>{warnings.length}</b>需复核</span>
-      </div>
-      <table className="small-table">
-        <tbody>
-          {warnings.map((station) => (
-            <tr key={station.id}><td>{station.name}</td><td>{station.validation}</td><td><button>查看</button></td></tr>
-          ))}
-        </tbody>
-      </table>
-    </article>
-  );
-}
-
-function SimpleModule({ section, selected }) {
-  const title = adminTitle(section);
-  return (
-    <section className="operation-card simple-module">
-      <h2>{title}</h2>
-      <p>该模块使用与场站管理相同的数据契约，演示第一期后台维护能力。</p>
-      {section === "price" && pricePeriods.map((period) => (
-        <p className="kv" key={period.start}>{period.start}-{period.end}<b>{period.price}</b></p>
-      ))}
-      {section === "stay" && stayDurations.map((period) => (
-        <p className="kv" key={period.start}>{period.start}-{period.end}<b>{period.duration}</b></p>
-      ))}
-      {section === "contract" && (
-        <pre>{JSON.stringify({
-          stationId: selected.id,
-          stationName: selected.name,
-          address: selected.address,
-          province: selected.province,
-          city: selected.city,
-          district: selected.district,
-          longitude: selected.lng,
-          latitude: selected.lat,
-          currentPriceText: selected.priceText,
-          pricePeriodList: pricePeriods,
-          distanceValue: selected.drivingKm,
-          distanceType: selected.drivingKm == null ? "straight" : "driving",
-          locationSource: "vehicle / phone / none",
-          capacityText: selected.capacityText,
-          pileCount: selected.totalPiles,
-          stationStatus: selected.status,
-        }, null, 2)}</pre>
-      )}
+      <button className="primary-btn" type="button" onClick={() => showBanner("地图配置已保存，发布同步后司机端刷新生效")}>保存配置</button>
     </section>
   );
 }
