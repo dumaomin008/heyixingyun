@@ -1938,6 +1938,9 @@ app.register('trip-detail', function() {
   hydrateTripTaskDetails(t);
   var ta = t.timeAnalysis || {};
   var loading = ta.loading || {}, driving = ta.driving || {}, unloading = ta.unloading || {}, charging = ta.charging || {};
+  var chargingWaitHours = getTripChargeWaitingHours(code);
+  var chargingWaitValue = typeof chargingWaitHours === 'number' ? chargingWaitHours : '—';
+  var chargingWaitNote = typeof chargingWaitHours === 'number' ? '进入围栏至开始充电' : '未采集完整时间';
   var tasks = t.tasks || [];
   var timeline = t.timeline || [];
   var displayVehicle = getCircleVehicleDisplay(code, t.vehicle);
@@ -1985,7 +1988,7 @@ app.register('trip-detail', function() {
   + '</div></div></div>'
 
   // Time Analysis Card
-  + '<div class="card"><div class="card-header"><div class="card-title"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>时效分析 <span class="sub">装货、行驶、卸货、充电四类时效分解</span></div></div>'
+  + '<div class="card"><div class="card-header"><div class="card-title"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>时效分析 <span class="sub">装货、行驶、充电等待、卸货、充电五类时效分解</span></div></div>'
   + '<div class="card-body"><div class="time-analysis"><div class="time-bar-container"><div class="time-bar-label">总耗时</div><div class="time-bar-track">'
   + '<div class="time-seg seg-loading" style="width:' + (loading.pct||0) + '%;" data-tip="装货时效 ' + (loading.h||0) + 'h (' + (loading.pct||0) + '%)">装货 ' + (loading.h||0) + 'h</div>'
   + '<div class="time-seg seg-driving" style="width:' + (driving.pct||0) + '%;" data-tip="行驶时效 ' + (driving.h||0) + 'h (' + (driving.pct||0) + '%)">行驶 ' + (driving.h||0) + 'h</div>'
@@ -1995,12 +1998,14 @@ app.register('trip-detail', function() {
   + '<div class="time-legend">'
   + '<div class="legend-item"><span class="legend-dot" style="background:var(--c-primary)"></span>装货时效 <span class="val">' + (loading.h||0) + 'h</span> <span class="pct">' + (loading.pct||0) + '%</span></div>'
   + '<div class="legend-item"><span class="legend-dot" style="background:var(--c-success)"></span>行驶时效 <span class="val">' + (driving.h||0) + 'h</span> <span class="pct">' + (driving.pct||0) + '%</span></div>'
+  + '<div class="legend-item"><span class="legend-dot" style="background:#7c3aed"></span>充电等待时效 <span class="val">' + chargingWaitValue + (chargingWaitValue === '—' ? '' : 'h') + '</span></div>'
   + '<div class="legend-item"><span class="legend-dot" style="background:var(--c-accent)"></span>卸货时效 <span class="val">' + (unloading.h||0) + 'h</span> <span class="pct">' + (unloading.pct||0) + '%</span></div>'
   + '<div class="legend-item"><span class="legend-dot" style="background:var(--c-warning)"></span>充电时效 <span class="val">' + (charging.h||0) + 'h</span> <span class="pct">' + (charging.pct||0) + '%</span></div>'
   + '</div></div>'
   + '<div class="time-summary">'
   + tCard('装货时效', (loading.h||0),' h', (directTaskCount ? directTaskCount + '条直达任务合计' : '—'),'tc-loading')
   + tCard('行驶时效', (driving.h||0),' h', (taskCountNum ? taskCountNum + '条任务合计' : '—'),'tc-driving')
+  + tCard('充电等待时效', chargingWaitValue,' h', chargingWaitNote,'tc-charge-wait')
   + tCard('卸货时效', (unloading.h||0),' h', (directTaskCount ? directTaskCount + '条直达任务合计' : '—'),'tc-unloading')
   + tCard('充电时效', (charging.h||0),' h', '1次充电记录','tc-charging')
   + '</div>'
@@ -2058,7 +2063,8 @@ app.register('trip-detail', function() {
     return '<div class="info-item"><div class="info-label">' + label + '</div><div class="info-value' + (cls ? ' ' + cls : '') + '">' + value + (suffix ? '<span class="sub">' + suffix + '</span>' : '') + '</div></div>';
   }
   function tCard(label, value, unit, note, tcls) {
-    return '<div class="time-card ' + tcls + '"><div class="tc-label"><span class="tc-dot"></span>' + label + '</div><div class="tc-value">' + value + '<span class="tc-unit">' + unit + '</span></div><div class="tc-label" style="margin-top:4px;font-size:11px;color:var(--c-text-3);">' + note + '</div></div>';
+    var displayUnit = value === '—' ? '' : unit;
+    return '<div class="time-card ' + tcls + '"><div class="tc-label"><span class="tc-dot"></span>' + label + '</div><div class="tc-value">' + value + '<span class="tc-unit">' + displayUnit + '</span></div><div class="tc-label" style="margin-top:4px;font-size:11px;color:var(--c-text-3);">' + note + '</div></div>';
   }
   function fmtMoney(v) {
     return (Number(v) || 0).toLocaleString('zh-CN', { minimumFractionDigits: 0, maximumFractionDigits: 2 });

@@ -309,6 +309,7 @@ th.col-seq { text-align: center; }
 .time-card .tc-unit { font-size: 11px; font-weight: 400; color: var(--c-text-3); }
 .tc-loading .tc-dot { background: var(--c-primary); } .tc-loading .tc-value { color: var(--c-primary); }
 .tc-driving .tc-dot { background: var(--c-success); } .tc-driving .tc-value { color: var(--c-success); }
+.tc-charge-wait .tc-dot { background: #7c3aed; } .tc-charge-wait .tc-value { color: #7c3aed; }
 .tc-unloading .tc-dot { background: var(--c-accent); } .tc-unloading .tc-value { color: var(--c-accent); }
 .tc-charging .tc-dot { background: var(--c-warning); } .tc-charging .tc-value { color: var(--c-warning); }
 .tc-other .tc-dot { background: #94a3b8; } .tc-other .tc-value { color: var(--c-text-2); }
