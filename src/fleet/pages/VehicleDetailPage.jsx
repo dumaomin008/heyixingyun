@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Activity, ClipboardList, Database, PlugZap, Route, Star } from "lucide-react";
+import { Activity, ClipboardList, Database, PlugZap, Route } from "lucide-react";
 import { PageHeader, StatusPill } from "../components.jsx";
 import { FleetSpotMap } from "../maps.jsx";
 import { fleetDrivingLogs } from "../data.js";
@@ -8,7 +8,7 @@ import { alertDescription, alertLabel } from "../alerts.js";
 const TABS = ["实时信息", "基本信息", "最近行程"];
 
 // 对应 TSP 端「车辆状态卡」：把单车监控、基本档案、行车日志整合到一页。
-export function VehicleDetailPage({ vehicle, isFollowed, onBack, onOpenPage, onToggleFollow }) {
+export function VehicleDetailPage({ vehicle, onBack, onOpenPage }) {
   const [tab, setTab] = useState("实时信息");
   const recentTrips = fleetDrivingLogs.filter((log) => log.vehicleId === vehicle.id).slice(0, 5);
   const locatable = vehicle.onlineStatus !== "从未上线";
@@ -19,16 +19,6 @@ export function VehicleDetailPage({ vehicle, isFollowed, onBack, onOpenPage, onT
         title="车辆详情"
         subtitle={vehicle.plate}
         onBack={onBack}
-        action={(
-          <button
-            type="button"
-            className={`fleet-header-action ${isFollowed ? "active" : ""}`}
-            aria-label={isFollowed ? "取消关注" : "关注车辆"}
-            onClick={onToggleFollow}
-          >
-            <Star aria-hidden="true" fill={isFollowed ? "currentColor" : "none"} />
-          </button>
-        )}
       />
       <div className="fleet-detail-body">
         <section className="fleet-detail-hero">
@@ -97,11 +87,11 @@ export function VehicleDetailPage({ vehicle, isFollowed, onBack, onOpenPage, onT
           <section className="fleet-detail-section">
             {recentTrips.length ? recentTrips.map((log) => (
               <article key={log.id} className="fleet-log-card">
-                <div className="fleet-log-card-title"><b>{log.startAt}</b><span>{log.mileage} km</span></div>
+                <div className="fleet-log-card-title"><b>开始 {log.startAt}</b><span>{log.mileage} km</span></div>
                 <p>{log.start} → {log.end}</p>
                 <div className="fleet-log-card-footer">
-                  <small>结束 {log.endAt} · 能耗 {log.energy}</small>
-                  <button type="button" onClick={() => onOpenPage("trip-track", vehicle, log)}>查看轨迹</button>
+                  <small>结束 {log.endAt} · SOC消耗 {log.energy}</small>
+                  <button type="button" onClick={() => onOpenPage("track", vehicle, { logId: log.id, customStart: log.startAt, customEnd: log.endAt })}>查看轨迹</button>
                 </div>
               </article>
             )) : <p className="fleet-detail-hint">该车暂无行程记录。</p>}

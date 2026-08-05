@@ -61,7 +61,7 @@ export function StationQuickCard({ station, onClose, onNavigate, onCopy, panelRe
   );
 }
 
-export function StationListPage({ stations, onBack, onToast }) {
+export function StationListPage({ stations, onBack, onToast, onSelectStation }) {
   const [keyword, setKeyword] = useState("");
   const [distance, setDistance] = useState("不限");
   const [navStation, setNavStation] = useState(null);
@@ -77,7 +77,7 @@ export function StationListPage({ stations, onBack, onToast }) {
   return (
     <section className="fleet-detail-page fleet-station-list-page" aria-label="场站列表">
       <PageHeader title="场站列表" onBack={onBack} />
-      <div className="fleet-page-body">
+      <div className="fleet-detail-body fleet-page-body">
         <label className="fleet-station-list-search">
           <Search aria-hidden="true" />
           <input value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索场站名称" />
@@ -90,11 +90,11 @@ export function StationListPage({ stations, onBack, onToast }) {
         <section className="fleet-station-list" aria-label="场站结果">
           {filteredStations.length ? filteredStations.map((station, index) => (
             <article key={station.id}>
-              <div>
+              <button type="button" className="fleet-station-list-select" aria-label={`在地图查看${station.name}`} onClick={() => onSelectStation(station)}>
                 <b><em>{index + 1}</em>{station.name}</b>
                 <span>{station.distance.text}｜当前 {station.priceText}｜充电桩 {station.totalPiles} 台</span>
                 <small><MapPin aria-hidden="true" />{station.address}</small>
-              </div>
+              </button>
               <button type="button" aria-label={`导航至${station.name}`} onClick={() => setNavStation(station)}><Navigation aria-hidden="true" /></button>
             </article>
           )) : <p>暂无符合条件的场站</p>}

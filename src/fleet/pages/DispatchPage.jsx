@@ -14,8 +14,6 @@ import {
   UsersRound,
   Warehouse,
 } from "lucide-react";
-import { PrimaryPageHeader } from "../components.jsx";
-
 const DISPATCH_ACTIONS = [
   { id: "dispatch", label: "调度派车", Icon: Truck },
   { id: "waybill", label: "运单", Icon: ClipboardList },
@@ -34,28 +32,14 @@ const DISPATCH_ACTIONS = [
   { id: "manage", label: "管理", Icon: Gauge },
 ];
 
-export function DispatchPage({ onBusinessAction }) {
+// 调度页内容已并入首页“经营调度”，保留为可复用区块，避免两处维护同一套入口。
+export function DispatchOverview({ onBusinessAction }) {
   return (
-    <section className="fleet-content-page fleet-dispatch-page" aria-label="调度">
-      <PrimaryPageHeader title="调度" className="fleet-dispatch-title" />
-      <div className="fleet-page-body fleet-dispatch-body">
-        <section className="fleet-dispatch-status" aria-labelledby="dispatch-status-title">
-          <div><span>今日待办</span><h2 id="dispatch-status-title">优先处理待派与在途任务</h2></div>
-          <div className="fleet-dispatch-status-grid">
-            <button type="button" onClick={() => onBusinessAction("dispatch", "调度派车")}><b>235</b><span>待派车</span></button>
-            <button type="button" onClick={() => onBusinessAction("waybill", "运单")}><b>2</b><span>待运输</span></button>
-            <button type="button" onClick={() => onBusinessAction("waybill", "运单")}><b>21</b><span>运输中</span></button>
-          </div>
-        </section>
-
-        <section className="fleet-dispatch-workbench" aria-labelledby="dispatch-workbench-title">
-          <div className="fleet-home-section-heading"><div><span>原首页业务能力</span><h2 id="dispatch-workbench-title">调度工作台</h2></div><span className="fleet-home-entry-count">15 项服务</span></div>
-          <div className="fleet-dispatch-grid">
-            {DISPATCH_ACTIONS.map(({ id, label, Icon }) => (
-              <button key={id} type="button" onClick={() => onBusinessAction(id, label)}><span><Icon aria-hidden="true" /></span><b>{label}</b></button>
-            ))}
-          </div>
-        </section>
+    <section className="fleet-dispatch-workbench" aria-label="业务入口">
+      <div className="fleet-dispatch-grid">
+        {DISPATCH_ACTIONS.map(({ id, label, Icon }) => (
+          <button key={id} type="button" onClick={() => onBusinessAction(id, label)}><span><Icon aria-hidden="true" /></span><b>{label}</b></button>
+        ))}
       </div>
     </section>
   );

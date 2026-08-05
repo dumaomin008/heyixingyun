@@ -1,105 +1,138 @@
 import { useMemo, useState } from "react";
-import { Search, SlidersHorizontal, Truck, UserRound } from "lucide-react";
-import { PageHeader, Pagination, SocBar, StatusPill, EmptyState } from "../components.jsx";
-import { alertLabel, alertTone } from "../alerts.js";
+import { Search, Truck, UserRound } from "lucide-react";
+import { PageHeader, EmptyState } from "../components.jsx";
+import { getVehiclePrimaryStatus, getVehicleSecondaryStatus, vehiclePrimaryTone, vehicleSecondaryTone } from "../vehicle-status.js";
 
 const PAGE_SIZE = 20;
-const STATUS_OPTIONS = ["全部", "在线", "离线", "从未上线"];
+const VEHICLE_STATUS_FILTERS = [
+  ["all", "全部"],
+  ["online", "在线"],
+  ["offline", "离线"],
+  ["driving", "行驶中"],
+  ["charging", "充电中"],
+];
+const TMS_STATUS_FILTERS = ["全部", "有任务", "待运输", "无任务", "停运"];
+function matchesStatus(vehicle, status) {
+  if (status === "all") return true;
+  if (status === "online") return vehicle.onlineStatus === "在线";
+  if (status === "offline") return vehicle.onlineStatus === "离线";
+  if (status === "driving") return getVehicleSecondaryStatus(vehicle) === "行驶中";
+  if (status === "charging") return getVehicleSecondaryStatus(vehicle) === "充电中";
+  return true;
+}
 
-export function VehicleListPage({ vehicles, onBack, onOpenVehicle, title = "车辆列表", onlyFollowed = false }) {
+function tmsTone(status) {
+  if (status === "有任务") return "active";
+  if (status === "待运输") return "pending";
+  if (status === "无任务") return "none";
+  if (status === "停运") return "suspended";
+  return "";
+}
+
+function sortVehicles(vehicles, status) {
+  return [...vehicles].sort((left, right) => {
+    if (status === "offline") {
+      const leftAbnormal = left.offlineDurationHours >= 24 ? 1 : 0;
+      const rightAbnormal = right.offlineDurationHours >= 24 ? 1 : 0;
+      return rightAbnormal - leftAbnormal || (right.offlineDurationHours ?? 0) - (left.offlineDurationHours ?? 0);
+    }
+    if (status === "all") {
+      const order = { "在线": 0, "离线": 1, "从未上线": 2 };
+      return (order[left.onlineStatus] ?? 9) - (order[right.onlineStatus] ?? 9);
+    }
+    return 0;
+  });
+}
+
+export function VehicleListPage({ vehicles, onBack, onOpenVehicle, title = "车辆列表", initialFilter = "all", showFilters = false }) {
   const [keyword, setKeyword] = useState("");
-  const [status, setStatus] = useState("全部");
-  const [model, setModel] = useState("全部");
   const [page, setPage] = useState(1);
-  const [filterOpen, setFilterOpen] = useState(false);
-
-  const models = useMemo(() => ["全部", ...new Set(vehicles.map((item) => item.model))], [vehicles]);
+  const [vehicleStatus, setVehicleStatus] = useState(initialFilter);
+  const [tmsStatus, setTmsStatus] = useState("全部");
+  const status = showFilters ? vehicleStatus : initialFilter;
 
   const filtered = useMemo(() => {
     const key = keyword.trim().toLowerCase();
-    return vehicles.filter((vehicle) => {
-      const matchKey = !key || `${vehicle.plate}${vehicle.trailerPlate}${vehicle.driverName}${vehicle.vin}${vehicle.model}`.toLowerCase().includes(key);
-      const matchStatus = status === "全部" || vehicle.onlineStatus === status;
-      const matchModel = model === "全部" || vehicle.model === model;
-      return matchKey && matchStatus && matchModel;
+    const matches = vehicles.filter((vehicle) => {
+      const matchKey = !key || `${vehicle.plate}${vehicle.vin}`.toLowerCase().includes(key);
+      const matchStatus = matchesStatus(vehicle, status);
+      const matchTmsStatus = !showFilters || tmsStatus === "全部" || vehicle.tmsTaskStatus === tmsStatus;
+      return matchKey && matchStatus && matchTmsStatus;
     });
-  }, [vehicles, keyword, status, model]);
+    return sortVehicles(matches, status);
+  }, [vehicles, keyword, status, tmsStatus, showFilters]);
 
-  const pageItems = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const pageItems = filtered.slice(0, page * PAGE_SIZE);
 
   function updateFilter(setter, value) {
     setter(value);
     setPage(1);
   }
 
+  function loadMoreOnReachBottom(event) {
+    const { scrollTop, clientHeight, scrollHeight } = event.currentTarget;
+    if (scrollTop + clientHeight >= scrollHeight - 72) {
+      setPage((current) => current * PAGE_SIZE < filtered.length ? current + 1 : current);
+    }
+  }
+
   return (
-    <section className="fleet-detail-page" aria-label={title}>
+    <section className="fleet-detail-page fleet-vehicle-list-page" aria-label={title}>
       <PageHeader
         title={title}
-        subtitle={onlyFollowed ? "监控车辆" : "全量车辆档案"}
         onBack={onBack}
-        action={(
-          <button type="button" className="fleet-header-action" aria-label="筛选" onClick={() => setFilterOpen((value) => !value)}>
-            <SlidersHorizontal aria-hidden="true" />
-          </button>
-        )}
       />
-      <div className="fleet-detail-body fleet-list-body">
+      <div className="fleet-detail-body fleet-list-body" onScroll={loadMoreOnReachBottom}>
+        {showFilters && <section className="fleet-vehicle-filter-panel" aria-label="车辆双行筛选">
+          <nav aria-label="TSP 车辆状态筛选">
+            <strong>TSP状态</strong>
+            {VEHICLE_STATUS_FILTERS.map(([value, label]) => <button key={value} type="button" className={vehicleStatus === value ? "active" : undefined} aria-pressed={vehicleStatus === value} onClick={() => updateFilter(setVehicleStatus, value)}>{label}</button>)}
+          </nav>
+          <nav aria-label="TMS 任务状态筛选">
+            <strong>TMS任务</strong>
+            {TMS_STATUS_FILTERS.map((value) => <button key={value} type="button" className={tmsStatus === value ? "active" : undefined} aria-pressed={tmsStatus === value} onClick={() => updateFilter(setTmsStatus, value)}>{value}</button>)}
+          </nav>
+        </section>}
         <label className="fleet-list-search">
           <Search aria-hidden="true" />
           <input
             value={keyword}
             onChange={(event) => updateFilter(setKeyword, event.target.value)}
-            placeholder="搜索车牌 / 挂车 / 司机 / VIN"
+            placeholder="搜索车牌 / VIN"
           />
         </label>
 
-        {filterOpen && (
-          <section className="fleet-list-filters" aria-label="筛选条件">
-            <div>
-              <span>车辆状态</span>
-              <div>
-                {STATUS_OPTIONS.map((item) => (
-                  <button key={item} type="button" className={status === item ? "active" : ""} onClick={() => updateFilter(setStatus, item)}>{item}</button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <span>车型</span>
-              <div>
-                {models.map((item) => (
-                  <button key={item} type="button" className={model === item ? "active" : ""} onClick={() => updateFilter(setModel, item)}>{item}</button>
-                ))}
-              </div>
-            </div>
-          </section>
-        )}
-
-        <p className="fleet-log-count">共 {filtered.length} 辆车辆{filtered.length > PAGE_SIZE ? ` · 每页 ${PAGE_SIZE} 条` : ""}</p>
-
-        {pageItems.length ? pageItems.map((vehicle) => (
-          <button key={vehicle.id} type="button" className="fleet-vehicle-card" onClick={() => onOpenVehicle(vehicle)}>
+        {pageItems.length ? pageItems.map((vehicle) => {
+          const primaryStatus = getVehiclePrimaryStatus(vehicle);
+          const secondaryStatus = getVehicleSecondaryStatus(vehicle);
+          return (
+          <button key={vehicle.id} type="button" className={`fleet-vehicle-card ${vehicle.onlineStatus === "离线" && vehicle.offlineDurationHours >= 24 ? "abnormal-offline" : ""}`} onClick={() => onOpenVehicle(vehicle)}>
             <div className="fleet-vehicle-card-top">
-              <b>{vehicle.plate}</b>
-              <StatusPill status={vehicle.onlineStatus} />
+              <span className="fleet-vehicle-card-identity">
+                <b>{vehicle.plate}</b>
+                {secondaryStatus && <span className={`fleet-vehicle-secondary-state ${vehicleSecondaryTone(secondaryStatus)}`}>{secondaryStatus}</span>}
+                {vehicle.tmsTaskStatus && <span className={`fleet-tms-state ${tmsTone(vehicle.tmsTaskStatus)}`}>{vehicle.tmsTaskStatus}</span>}
+              </span>
+              <span className="fleet-vehicle-card-tags">
+                <span className={`fleet-vehicle-state ${vehiclePrimaryTone(primaryStatus)}`}>{primaryStatus}</span>
+              </span>
             </div>
-            <p className="fleet-vehicle-card-vin">{vehicle.vin}</p>
+            <p className="fleet-vehicle-card-vin"><b>{vehicle.model}</b><span>{vehicle.vin}</span></p>
             <div className="fleet-vehicle-card-meta">
-              <span>{vehicle.model}</span>
+              <span>SOC {vehicle.soc === null ? "—" : `${vehicle.soc}%`}</span>
               <span>{vehicle.totalMileage.toLocaleString()} km</span>
+              <span>{vehicle.location}</span>
             </div>
             <div className="fleet-vehicle-card-assignment">
               <span><Truck aria-hidden="true" /><small>挂车车牌</small><b>{vehicle.trailerPlate}</b></span>
               <span><UserRound aria-hidden="true" /><small>当前司机</small><b>{vehicle.driverName}</b></span>
             </div>
-            <div className="fleet-vehicle-card-soc">
-              <SocBar soc={vehicle.soc} threshold={vehicle.socThreshold} />
-              {vehicle.alert && <em className={alertTone(vehicle.alert)}>{alertLabel(vehicle.alert)}</em>}
-            </div>
+            {vehicle.onlineStatus === "离线" && <p className="fleet-vehicle-offline-duration">已离线 {vehicle.offlineDurationHours} 小时</p>}
           </button>
-        )) : <EmptyState title="没有符合条件的车辆" hint="请调整搜索或筛选条件" />}
+          );
+        }) : <EmptyState title="没有符合条件的车辆" hint="请调整搜索或筛选条件" />}
 
-        <Pagination page={page} pageSize={PAGE_SIZE} total={filtered.length} onChange={setPage} />
+        {pageItems.length > 0 && pageItems.length < filtered.length && <p className="fleet-vehicle-load-more">继续上拉加载更多</p>}
       </div>
     </section>
   );

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TMS运输管理后台</title>
+<link rel="stylesheet" href="./global.css">
+  <link rel="stylesheet" href="./station-extension.css">
+</head>
+<body>
+
+<!-- ========== Topbar ========== -->
+<header class="topbar">
+  <div class="topbar-logo">
+    <div class="logo-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 3h15v13H1z"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+    </div>
+    <span>TMS 运输管理后台</span>
+  </div>
+  <div class="topbar-search">
+    <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <input type="text" placeholder="搜索车辆、任务单、围栏...">
+  </div>
+  <div class="topbar-right">
+    <button class="topbar-icon-btn" title="通知">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      <span class="badge-dot"></span>
+    </button>
+    <button class="topbar-icon-btn" title="帮助">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+    </button>
+    <div class="topbar-user">
+      <div class="avatar">李</div>
+      <span class="user-name">李调度</span>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+  </div>
+</header>
+
+<!-- ========== Sidebar ========== -->
+<aside class="sidebar">
+  <nav>
+    <div class="nav-group open" data-group="base-info">
+      <div class="nav-parent" data-toggle-group="base-info">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+        <span>基础信息</span>
+        <svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="nav-children">
+        <div class="nav-item sub" data-page="fence-list"><span>电子围栏</span></div>
+      </div>
+    </div>
+    <div class="nav-group open" data-group="report-center">
+      <div class="nav-parent" data-toggle-group="report-center">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        <span>报表中心</span>
+        <svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="nav-children">
+        <div class="nav-item sub" data-page="circle-report"><span>趟次统计报表</span></div>
+      </div>
+    </div>
+  </nav>
+</aside>
+
+<!-- ========== Main ========== -->
+<main class="main" id="mainContent"></main>
+
+
+
+<!-- ============================================================ -->
+<!-- PAGE: 电子围栏列表 -->
+<!-- ============================================================ -->
+
+
+<!-- ============================================================ -->
+<!-- PAGE: 电子围栏新增/修改 -->
+<!-- ============================================================ -->
+
+
+<!-- ============================================================ -->
+<!-- PAGE: 趟次统计报表 -->
+<!-- ============================================================ -->
+
+
+<!-- ============================================================ -->
+<!-- PAGE: 趟次详情 -->
+<!-- ============================================================ -->
+
+
+<!-- ============================================================ -->
+<!-- 初始化 -->
+<!-- ============================================================ -->
+
+
+  <script src="./app.js"></script>
+  <script src="./station-extension.js"></script>
+</body>
+</html>

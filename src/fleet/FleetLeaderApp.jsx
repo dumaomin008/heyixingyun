@@ -1,51 +1,50 @@
 import { useEffect, useMemo, useState } from "react";
-import { House, ListTodo, Truck, UserRound } from "lucide-react";
+import { House, Truck, UserRound } from "lucide-react";
 import {
   countByStatus,
   fleetVehicles as seedVehicles,
   getTodaySummary,
 } from "./data.js";
 import { HomePage } from "./pages/HomePage.jsx";
-import { DispatchPage } from "./pages/DispatchPage.jsx";
 import { MonitorPage } from "./pages/MonitorPage.jsx";
-import { ProfilePage, MonitoredVehicleEditor } from "./pages/ProfilePage.jsx";
+import { ProfilePage } from "./pages/ProfilePage.jsx";
 import { VehicleListPage } from "./pages/VehicleListPage.jsx";
-import { VehicleDetailPage } from "./pages/VehicleDetailPage.jsx";
 import { RealtimeDataPage } from "./pages/RealtimeDataPage.jsx";
 import { TrackPlaybackPage } from "./pages/TrackPlaybackPage.jsx";
 import { ChargingLogPage, ChargingSpotPage, DrivingLogPage, TripTrackPage } from "./pages/LogPages.jsx";
-import { AlertCenterPage, SocAlertPage } from "./pages/AlertPages.jsx";
+import { AlertCenterPage, SafetyAlertPage, SocAlertPage } from "./pages/AlertPages.jsx";
 import { DailyReportPage, RawDataPage } from "./pages/ReportPages.jsx";
 import { VehicleTaskPage } from "./pages/VehicleTaskPage.jsx";
 import { defaultScopeSelection, scopeMatchesVehicle } from "./scope.js";
-import { sortAlerts } from "./alerts.js";
+import { getMapSafetyAlerts, sortAlerts } from "./alerts.js";
 import { getFleetStations } from "./stations.js";
 import { StationListPage } from "./pages/StationListPage.jsx";
 import "./fleet.css";
 
 const TABS = [
   { id: "home", label: "首页", Icon: House },
-  { id: "dispatch", label: "调度", Icon: ListTodo },
   { id: "monitor", label: "监控", Icon: Truck },
   { id: "profile", label: "我的", Icon: UserRound },
 ];
 
 export function FleetLeaderApp() {
-  const [vehicles, setVehicles] = useState(seedVehicles);
+  const vehicles = seedVehicles;
   const [activeTab, setActiveTab] = useState("monitor");
   const [filter, setFilter] = useState("all");
+  const [taskFilter, setTaskFilter] = useState("all");
   const [keyword, setKeyword] = useState("");
   const [selectedId, setSelectedId] = useState(seedVehicles[0].id);
   const [lastRefreshedAt, setLastRefreshedAt] = useState("刚刚");
   const [handledAlertIds, setHandledAlertIds] = useState([]);
-  const [followedIds, setFollowedIds] = useState(["FV001", "FV003"]);
   const [subscriptionEnabled, setSubscriptionEnabled] = useState(false);
-  const [editingVehicle, setEditingVehicle] = useState(null);
   const [toast, setToast] = useState("");
   const [scopeSelection, setScopeSelection] = useState(defaultScopeSelection);
   const [stations, setStations] = useState([]);
+  const [mapStationSelection, setMapStationSelection] = useState(null);
+  const [mapSafetyAlertSelection, setMapSafetyAlertSelection] = useState(null);
+  const [acknowledgedSafetyAlertIds, setAcknowledgedSafetyAlertIds] = useState([]);
 
-  // 页面栈：支持从任意入口进入车辆详情后逐级返回。
+  // 页面栈：支持从任意入口进入二级页面后逐级返回。
   const [stack, setStack] = useState([]);
   const top = stack[stack.length - 1] ?? null;
 
@@ -60,10 +59,11 @@ export function FleetLeaderApp() {
     const key = keyword.trim().toLowerCase();
     return scopedVehicles.filter((vehicle) => {
       const statusMatch = filter === "all" || vehicle.onlineStatus === filter;
+      const taskMatch = taskFilter === "all" || vehicle.tmsTaskStatus === taskFilter;
       const keywordMatch = !key || `${vehicle.plate}${vehicle.trailerPlate}${vehicle.driverName}${vehicle.vin}${vehicle.model}`.toLowerCase().includes(key);
-      return statusMatch && keywordMatch;
+      return statusMatch && taskMatch && keywordMatch;
     });
-  }, [scopedVehicles, filter, keyword]);
+  }, [scopedVehicles, filter, taskFilter, keyword]);
 
   const mapVehicles = useMemo(
     () => visibleVehicles.filter((vehicle) => vehicle.onlineStatus !== "从未上线"),
@@ -76,7 +76,7 @@ export function FleetLeaderApp() {
     () => sortAlerts(scopedVehicles.filter((vehicle) => vehicle.alert && !handledAlertIds.includes(vehicle.id))),
     [scopedVehicles, handledAlertIds],
   );
-  const followedVehicles = scopedVehicles.filter((vehicle) => followedIds.includes(vehicle.id));
+  const mapSafetyAlerts = useMemo(() => getMapSafetyAlerts(scopedVehicles), [scopedVehicles]);
 
   useEffect(() => {
     let active = true;
@@ -103,13 +103,36 @@ export function FleetLeaderApp() {
 
   // 二级页与底部 Tab 切换时始终从首屏开始，避免地图页操作后继承旧滚动位置。
   useEffect(() => {
+    if (!top) {
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+      return undefined;
+    }
+    let secondFrame;
+    const resetViewportScroll = () => window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    const lockViewportScroll = () => {
+      if (window.scrollY !== 0) resetViewportScroll();
+    };
+    // 二级页自身使用独立滚动容器，外层页面不能因地图或焦点重排而发生滚动。
+    window.addEventListener("scroll", lockViewportScroll, { passive: true });
     const frame = window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
+      resetViewportScroll();
+      secondFrame = window.requestAnimationFrame(() => {
+        // 点击底部信息窗的快捷入口后，浏览器会在首帧补做一次焦点滚动；第二帧再归零，保证返回栏始终露出。
+        resetViewportScroll();
         const content = document.querySelector(".fleet-detail-body, .fleet-page-body");
         if (content) content.scrollTop = 0;
       });
     });
-    return () => window.cancelAnimationFrame(frame);
+    // 某些浏览器及异步地图会在首屏渲染后继续滚动此前的聚焦元素；在入场动画内短暂复位，确保页头不被裁切。
+    const scrollRecovery = window.setInterval(resetViewportScroll, 60);
+    const stopScrollRecovery = window.setTimeout(() => window.clearInterval(scrollRecovery), 620);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      if (secondFrame) window.cancelAnimationFrame(secondFrame);
+      window.clearInterval(scrollRecovery);
+      window.clearTimeout(stopScrollRecovery);
+      window.removeEventListener("scroll", lockViewportScroll);
+    };
   }, [activeTab, top?.page]);
 
   function pushPage(page, vehicle, payload) {
@@ -120,9 +143,10 @@ export function FleetLeaderApp() {
     setStack((current) => current.slice(0, -1));
   }
 
-  function openVehicleDetail(vehicle) {
+  function focusVehicleOnMonitor(vehicle) {
     setSelectedId(vehicle.id);
-    pushPage("vehicle-detail", vehicle);
+    setStack([]);
+    setActiveTab("monitor");
   }
 
   function handleQuickAction(id) {
@@ -130,12 +154,29 @@ export function FleetLeaderApp() {
       setActiveTab("monitor");
       return;
     }
-    if (id === "driving-logs" || id === "charging-logs" || id === "daily-report") {
+    if (id === "driving-logs") {
+      pushPage(id, selectedVehicle ?? scopedVehicles[0], { todayOnly: true });
+      return;
+    }
+    if (id === "today-charging-logs") {
+      pushPage("charging-logs", selectedVehicle ?? scopedVehicles[0], { todayOnly: true });
+      return;
+    }
+    if (id === "vehicle-list") {
+      pushPage("vehicle-list", null, { showFilters: true });
+      return;
+    }
+    if (id === "charging-logs" || id === "daily-report") {
       // 这三个入口以当前选中车辆为默认对象，未选中时回落到第一辆车。
       pushPage(id, selectedVehicle ?? scopedVehicles[0]);
       return;
     }
     pushPage(id);
+  }
+
+  // 车辆运行分析的五项指标共用车辆列表页，仅传入标题和默认状态筛选。
+  function openVehicleList(initialFilter = "all", title = "车辆列表") {
+    pushPage("vehicle-list", null, { initialFilter, title, showFilters: false });
   }
 
   function handleBusinessAction(id, label) {
@@ -144,7 +185,7 @@ export function FleetLeaderApp() {
       return;
     }
     if (id === "vehicle-list") {
-      pushPage("vehicle-list");
+      pushPage("vehicle-list", null, { showFilters: true });
       return;
     }
     if (id === "charging") {
@@ -154,47 +195,23 @@ export function FleetLeaderApp() {
     setToast(`「${label}」入口已保留，等待业务模块接入`);
   }
 
-  function toggleFollow(vehicleId) {
-    setFollowedIds((current) => current.includes(vehicleId)
-      ? current.filter((id) => id !== vehicleId)
-      : [...current, vehicleId]);
-  }
-
-  function saveMonitoredVehicle(vehicleId, form) {
-    setVehicles((current) => current.map((vehicle) => vehicle.id === vehicleId ? { ...vehicle, ...form } : vehicle));
-    setEditingVehicle(null);
-    setToast("监控车辆信息已更新");
-  }
-
   function renderStackPage() {
     if (!top) return null;
     const vehicle = top.vehicle ?? selectedVehicle ?? scopedVehicles[0] ?? vehicles[0];
 
     switch (top.page) {
       case "vehicle-list":
-        return <VehicleListPage vehicles={scopedVehicles} onBack={popPage} onOpenVehicle={openVehicleDetail} />;
-      case "monitored-vehicles":
-        return <VehicleListPage vehicles={followedVehicles} title="监控车辆" onlyFollowed onBack={popPage} onOpenVehicle={openVehicleDetail} />;
-      case "vehicle-detail":
-        return (
-          <VehicleDetailPage
-            vehicle={vehicle}
-            isFollowed={followedIds.includes(vehicle.id)}
-            onBack={popPage}
-            onToggleFollow={() => toggleFollow(vehicle.id)}
-            onOpenPage={(page, target, payload) => pushPage(page, target ?? vehicle, payload)}
-          />
-        );
+        return <VehicleListPage vehicles={scopedVehicles} title={top.payload?.title ?? "车辆列表"} initialFilter={top.payload?.initialFilter ?? "all"} showFilters={Boolean(top.payload?.showFilters)} onBack={popPage} onOpenVehicle={focusVehicleOnMonitor} />;
       case "realtime-data":
-        return <RealtimeDataPage vehicle={vehicle} onBack={popPage} />;
+        return <RealtimeDataPage vehicle={vehicle} onBack={popPage} onOpenPage={(page, target) => pushPage(page, target ?? vehicle)} />;
       case "track":
-        return <TrackPlaybackPage vehicle={vehicle} onBack={popPage} />;
+        return <TrackPlaybackPage vehicle={vehicle} initialSelection={top.payload} onBack={popPage} />;
       case "vehicle-tasks":
         return <VehicleTaskPage vehicle={vehicle} onBack={popPage} />;
       case "driving-logs":
-        return <DrivingLogPage vehicle={vehicle} onBack={popPage} onOpenTrip={(log) => pushPage("trip-track", vehicle, log)} />;
+        return <DrivingLogPage vehicle={vehicle} vehicles={scopedVehicles} todayOnly={Boolean(top.payload?.todayOnly)} onBack={popPage} onOpenTrip={(target, log) => pushPage("track", target, { logId: log.id, customStart: log.startAt, customEnd: log.endAt })} />;
       case "charging-logs":
-        return <ChargingLogPage vehicle={vehicle} onBack={popPage} onOpenSpot={(log) => pushPage("charging-spot", vehicle, log)} />;
+        return <ChargingLogPage vehicle={vehicle} vehicles={scopedVehicles} todayOnly={Boolean(top.payload?.todayOnly)} onBack={popPage} onOpenSpot={(target, log) => pushPage("charging-spot", target, log)} />;
       case "trip-track":
         return <TripTrackPage vehicle={vehicle} log={top.payload} onBack={popPage} />;
       case "charging-spot":
@@ -204,18 +221,41 @@ export function FleetLeaderApp() {
           <AlertCenterPage
             alerts={alerts}
             onBack={popPage}
-            onOpenVehicle={openVehicleDetail}
+            onOpenVehicle={focusVehicleOnMonitor}
             onHandle={(id) => setHandledAlertIds((current) => [...current, id])}
           />
         );
+      case "safety-alerts":
+        return (
+          <SafetyAlertPage
+            alerts={mapSafetyAlerts}
+            acknowledgedIds={acknowledgedSafetyAlertIds}
+            onBack={popPage}
+            onAcknowledge={(id) => setAcknowledgedSafetyAlertIds((ids) => [...ids, id])}
+            onOpenAlert={(alert) => {
+              setMapSafetyAlertSelection(alert);
+              popPage();
+            }}
+          />
+        );
       case "soc-alerts":
-        return <SocAlertPage vehicles={vehicles} onBack={popPage} onOpenVehicle={openVehicleDetail} />;
+        return <SocAlertPage vehicles={vehicles} onBack={popPage} onOpenVehicle={focusVehicleOnMonitor} />;
       case "daily-report":
         return <DailyReportPage vehicle={vehicle} onBack={popPage} />;
       case "raw-data":
         return <RawDataPage vehicle={vehicle} onBack={popPage} />;
       case "station-list":
-        return <StationListPage stations={fleetStations} onBack={popPage} onToast={setToast} />;
+        return (
+          <StationListPage
+            stations={fleetStations}
+            onBack={popPage}
+            onToast={setToast}
+            onSelectStation={(station) => {
+              setMapStationSelection(station);
+              popPage();
+            }}
+          />
+        );
       default:
         return null;
     }
@@ -232,14 +272,21 @@ export function FleetLeaderApp() {
               stations={fleetStations}
               selectedVehicle={selectedVehicle}
               filter={filter}
+              taskFilter={taskFilter}
               keyword={keyword}
+              safetyAlerts={mapSafetyAlerts}
+              safetyAlertSelection={mapSafetyAlertSelection}
+              stationSelection={mapStationSelection}
               lastRefreshedAt={lastRefreshedAt}
               onFilterChange={setFilter}
+              onTaskFilterChange={setTaskFilter}
               onKeywordChange={setKeyword}
               onVehicleSelect={setSelectedId}
-              onOpenVehicle={openVehicleDetail}
-              onOpenPage={(page, target) => pushPage(page, target)}
               onOpenStationList={() => pushPage("station-list")}
+              onOpenSafetyAlerts={() => pushPage("safety-alerts")}
+              onStationSelectionConsumed={() => setMapStationSelection(null)}
+              onSafetyAlertSelectionConsumed={() => setMapSafetyAlertSelection(null)}
+              acknowledgedSafetyAlertIds={acknowledgedSafetyAlertIds}
               onToast={setToast}
               onRefresh={() => setLastRefreshedAt("刚刚")}
             />
@@ -253,23 +300,16 @@ export function FleetLeaderApp() {
               scopeSelection={scopeSelection}
               onScopeChange={setScopeSelection}
               onQuickAction={handleQuickAction}
-              onOpenAlerts={() => pushPage("alerts")}
-              onOpenVehicle={openVehicleDetail}
-            />
-          )}
-          {activeTab === "dispatch" && (
-            <DispatchPage
+              onOpenVehicleList={openVehicleList}
               onBusinessAction={handleBusinessAction}
+              onOpenAlerts={() => pushPage("alerts")}
+              onOpenVehicle={focusVehicleOnMonitor}
             />
           )}
           {activeTab === "profile" && (
             <ProfilePage
-              followedVehicles={followedVehicles}
               subscriptionEnabled={subscriptionEnabled}
               onToggleSubscription={() => setSubscriptionEnabled((value) => !value)}
-              onOpenVehicle={openVehicleDetail}
-              onOpenPage={(page) => pushPage(page)}
-              onEditVehicle={setEditingVehicle}
             />
           )}
 
@@ -289,14 +329,6 @@ export function FleetLeaderApp() {
           </nav>
 
           {renderStackPage()}
-
-          {editingVehicle && (
-            <MonitoredVehicleEditor
-              vehicle={editingVehicle}
-              onClose={() => setEditingVehicle(null)}
-              onSave={saveMonitoredVehicle}
-            />
-          )}
 
           {toast && <div className="fleet-toast" role="status">{toast}</div>}
         </main>

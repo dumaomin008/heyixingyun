@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { PageHeader, EmptyState, SocBar } from "../components.jsx";
 import { SOC_THRESHOLDS } from "../data.js";
-import { ALERT_TYPES, alertCoreInfo, alertDescription, alertLabel, alertTone } from "../alerts.js";
+import { ALERT_TYPES, alertCoreInfo, alertDescription, alertLabel, alertTone, mapSafetyAlertTone } from "../alerts.js";
+import { getVehiclePrimaryStatus, getVehicleSecondaryStatus } from "../vehicle-status.js";
 
 // 预警中心按故障、离线超时、SOC 的风险等级接收已排序预警，支持标记已处理。
 export function AlertCenterPage({ alerts, onBack, onOpenVehicle, onHandle }) {
@@ -35,6 +36,47 @@ export function AlertCenterPage({ alerts, onBack, onOpenVehicle, onHandle }) {
             <button type="button" className="fleet-alert-handle" onClick={() => onHandle(vehicle.id)}>标记已处理</button>
           </article>;
         }) : <EmptyState title="当前没有待处理预警" hint="已处理的预警不会在此显示" />}
+      </div>
+    </section>
+  );
+}
+
+const SAFETY_FILTERS = ["全部", "紧急", "SOC 过低", "行驶中停留", "围栏内停留"];
+
+// 地图入口对应的独立安全告警页：事件口径而非车辆口径，同车多项风险分别保留。
+export function SafetyAlertPage({ alerts, acknowledgedIds, onBack, onOpenAlert, onAcknowledge }) {
+  const [filter, setFilter] = useState("全部");
+  const visibleAlerts = alerts.filter((alert) => filter === "全部" || alert.level === filter || alert.type === filter);
+  const pendingCount = alerts.filter((alert) => !acknowledgedIds.includes(alert.id)).length;
+
+  return (
+    <section className="fleet-detail-page fleet-safety-alert-page" aria-label="安全告警">
+      <PageHeader title="安全告警" subtitle="地图实时风险" onBack={onBack} showBackLabel />
+      <div className="fleet-detail-body fleet-safety-alert-body">
+        <section className="fleet-alert-filter" aria-label="安全告警筛选">
+          {SAFETY_FILTERS.map((item) => (
+            <button key={item} type="button" className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>{item}</button>
+          ))}
+        </section>
+        <p className="fleet-safety-alert-intro">发生中 {alerts.length} 条 · 待知悉 {pendingCount} 条 · 涉及 {new Set(alerts.map((alert) => alert.vehicle.id)).size} 车</p>
+        {visibleAlerts.length ? visibleAlerts.map((alert) => {
+          const acknowledged = acknowledgedIds.includes(alert.id);
+          const vehicleStatus = getVehicleSecondaryStatus(alert.vehicle) ?? getVehiclePrimaryStatus(alert.vehicle);
+          return (
+            <article key={alert.id} className={`fleet-safety-alert-card ${mapSafetyAlertTone(alert)} ${alert.level === "紧急" ? "urgent" : "general"}`}>
+              <button type="button" className="fleet-safety-alert-open" onClick={() => onOpenAlert(alert)}>
+                <div><b>{alert.vehicle.plate}</b><em>{alert.type}</em>{acknowledged && <i>已知悉</i>}</div>
+                <p>{alert.description}</p>
+                <dl>
+                  <div><dt>等级</dt><dd>{alert.level}</dd></div>
+                  <div><dt>持续时长</dt><dd>{alert.duration}</dd></div>
+                  <div><dt>车辆状态</dt><dd>{vehicleStatus}</dd></div>
+                </dl>
+              </button>
+              <button type="button" className={acknowledged ? "acknowledged" : ""} disabled={acknowledged} onClick={() => onAcknowledge(alert.id)}>{acknowledged ? "已知悉" : "知悉"}</button>
+            </article>
+          );
+        }) : <EmptyState title="暂无符合条件的安全告警" hint="可切换筛选条件查看其他发生中事件" />}
       </div>
     </section>
   );

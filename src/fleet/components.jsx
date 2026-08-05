@@ -54,11 +54,12 @@ export function PrimaryPageHeader({ title, className = "" }) {
 }
 
 // 所有二级页共用的顶部返回栏。
-export function PageHeader({ title, subtitle, onBack, action }) {
+export function PageHeader({ title, subtitle, onBack, action, showBackLabel = false }) {
   return (
     <header className="fleet-detail-header">
-      <button type="button" className="page-back" aria-label="返回" onClick={onBack}>
+      <button type="button" className={showBackLabel ? "page-back page-back-labeled" : "page-back"} aria-label="返回" onClick={onBack}>
         <ChevronLeft aria-hidden="true" />
+        {showBackLabel && <span>返回</span>}
       </button>
       <div className="fleet-detail-heading">
         {subtitle && <span>{subtitle}</span>}
