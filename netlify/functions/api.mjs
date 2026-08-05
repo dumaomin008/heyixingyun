@@ -1,9 +1,6 @@
 import { getStore } from "@netlify/blobs";
-import { createRequire } from "node:module";
-
-const require = createRequire(import.meta.url);
-const initialData = require("../../data/app.json");
-const stationSeed = require("../../admin-server/station-seed.js");
+import initialData from "../../data/app.json" with { type: "json" };
+import stationSeed from "../../admin-server/station-seed.js";
 
 const STORE_NAME = "tms-admin-data";
 const STORE_KEY = "app.json";
