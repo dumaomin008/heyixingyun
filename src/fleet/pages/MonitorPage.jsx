@@ -4,7 +4,6 @@ import {
   BatteryMedium,
   ChevronDown,
   CloudSun,
-  Clock3,
   Crosshair,
   Gauge,
   Layers3,
@@ -502,7 +501,6 @@ export function MonitorPage({
           <div className="fleet-source-location">
             <MapPin aria-hidden="true" />
             <p>{activeSelectedVehicle.location}</p>
-            <span><Clock3 aria-hidden="true" />{activeSelectedVehicle.updatedAt}</span>
           </div>
 
           <div className="fleet-command-row fleet-source-command-row fleet-source-call-only" aria-label="车辆快捷入口">
