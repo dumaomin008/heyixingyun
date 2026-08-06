@@ -56,14 +56,13 @@ export function FleetLeaderApp() {
   const summary = useMemo(() => getTodaySummary(scopedVehicles), [scopedVehicles]);
 
   const visibleVehicles = useMemo(() => {
-    const key = keyword.trim().toLowerCase();
     return scopedVehicles.filter((vehicle) => {
       const statusMatch = filter === "all" || vehicle.onlineStatus === filter;
       const taskMatch = taskFilter === "all" || vehicle.tmsTaskStatus === taskFilter;
-      const keywordMatch = !key || `${vehicle.plate}${vehicle.trailerPlate}${vehicle.driverName}${vehicle.vin}${vehicle.model}`.toLowerCase().includes(key);
-      return statusMatch && taskMatch && keywordMatch;
+      // 关键词只驱动监控页的混合搜索预览，不改变地图上的车辆上下文。
+      return statusMatch && taskMatch;
     });
-  }, [scopedVehicles, filter, taskFilter, keyword]);
+  }, [scopedVehicles, filter, taskFilter]);
 
   const mapVehicles = useMemo(
     () => visibleVehicles.filter((vehicle) => vehicle.onlineStatus !== "从未上线"),

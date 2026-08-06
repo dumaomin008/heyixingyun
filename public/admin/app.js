@@ -1941,6 +1941,30 @@ app.register('trip-detail', function() {
   var chargingWaitHours = getTripChargeWaitingHours(code);
   var chargingWaitValue = typeof chargingWaitHours === 'number' ? chargingWaitHours : '—';
   var chargingWaitNote = typeof chargingWaitHours === 'number' ? '进入围栏至开始充电' : '未采集完整时间';
+  // 总耗时条以各环节的实际时长重新汇总，确保充电等待时效既可见也计入总耗时与占比。
+  function getAnalysisHours(item) {
+    var value = Number(item && item.h);
+    return isFinite(value) && value >= 0 ? value : 0;
+  }
+  function hasAnalysisValue(item) {
+    return item && item.h !== null && item.h !== undefined && item.h !== '' && isFinite(Number(item.h));
+  }
+  var loadingHours = getAnalysisHours(loading);
+  var drivingHours = getAnalysisHours(driving);
+  var unloadingHours = getAnalysisHours(unloading);
+  var chargingHours = getAnalysisHours(charging);
+  var hasChargingWait = typeof chargingWaitHours === 'number' && isFinite(chargingWaitHours) && chargingWaitHours >= 0;
+  var totalAnalysisHours = loadingHours + drivingHours + unloadingHours + chargingHours + (hasChargingWait ? chargingWaitHours : 0);
+  var hasAnalysisHours = hasAnalysisValue(loading) || hasAnalysisValue(driving) || hasAnalysisValue(unloading) || hasAnalysisValue(charging) || hasChargingWait;
+  var displayAnalysisTotal = hasAnalysisHours ? Math.round(totalAnalysisHours * 10) / 10 : null;
+  function getAnalysisPct(hours) {
+    return totalAnalysisHours > 0 ? Math.round((hours / totalAnalysisHours) * 1000) / 10 : 0;
+  }
+  var loadingPct = getAnalysisPct(loadingHours);
+  var drivingPct = getAnalysisPct(drivingHours);
+  var unloadingPct = getAnalysisPct(unloadingHours);
+  var chargingWaitPct = getAnalysisPct(hasChargingWait ? chargingWaitHours : 0);
+  var chargingPct = getAnalysisPct(chargingHours);
   var tasks = t.tasks || [];
   var timeline = t.timeline || [];
   var displayVehicle = getCircleVehicleDisplay(code, t.vehicle);
@@ -1988,26 +2012,27 @@ app.register('trip-detail', function() {
   + '</div></div></div>'
 
   // Time Analysis Card
-  + '<div class="card"><div class="card-header"><div class="card-title"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>时效分析 <span class="sub">装货、行驶、充电等待、卸货、充电五类时效分解</span></div></div>'
+  + '<div class="card"><div class="card-header"><div class="card-title"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>时效分析 <span class="sub">装货、行驶、卸货、充电等待、充电五类时效分解</span></div></div>'
   + '<div class="card-body"><div class="time-analysis"><div class="time-bar-container"><div class="time-bar-label">总耗时</div><div class="time-bar-track">'
-  + '<div class="time-seg seg-loading" style="width:' + (loading.pct||0) + '%;" data-tip="装货时效 ' + (loading.h||0) + 'h (' + (loading.pct||0) + '%)">装货 ' + (loading.h||0) + 'h</div>'
-  + '<div class="time-seg seg-driving" style="width:' + (driving.pct||0) + '%;" data-tip="行驶时效 ' + (driving.h||0) + 'h (' + (driving.pct||0) + '%)">行驶 ' + (driving.h||0) + 'h</div>'
-  + '<div class="time-seg seg-unloading" style="width:' + (unloading.pct||0) + '%;" data-tip="卸货时效 ' + (unloading.h||0) + 'h (' + (unloading.pct||0) + '%)">卸货 ' + (unloading.h||0) + 'h</div>'
-  + '<div class="time-seg seg-charging" style="width:' + (charging.pct||0) + '%;" data-tip="充电时效 ' + (charging.h||0) + 'h (' + (charging.pct||0) + '%)">充电 ' + (charging.h||0) + 'h</div>'
-  + '</div><div class="time-bar-total">' + (ta.total != null ? ta.total + 'h' : '—') + '</div></div>'
+  + '<div class="time-seg seg-loading" style="width:' + loadingPct + '%;" data-tip="装货时效 ' + loadingHours + 'h (' + loadingPct + '%)">装货 ' + loadingHours + 'h</div>'
+  + '<div class="time-seg seg-driving" style="width:' + drivingPct + '%;" data-tip="行驶时效 ' + drivingHours + 'h (' + drivingPct + '%)">行驶 ' + drivingHours + 'h</div>'
+  + '<div class="time-seg seg-unloading" style="width:' + unloadingPct + '%;" data-tip="卸货时效 ' + unloadingHours + 'h (' + unloadingPct + '%)">卸货 ' + unloadingHours + 'h</div>'
+  + (hasChargingWait ? '<div class="time-seg seg-charge-wait" style="width:' + chargingWaitPct + '%;" data-tip="充电等待时效 ' + chargingWaitHours + 'h (' + chargingWaitPct + '%)">等待 ' + chargingWaitHours + 'h</div>' : '')
+  + '<div class="time-seg seg-charging" style="width:' + chargingPct + '%;" data-tip="充电时效 ' + chargingHours + 'h (' + chargingPct + '%)">充电 ' + chargingHours + 'h</div>'
+  + '</div><div class="time-bar-total">' + (displayAnalysisTotal === null ? '—' : displayAnalysisTotal + 'h') + '</div></div>'
   + '<div class="time-legend">'
-  + '<div class="legend-item"><span class="legend-dot" style="background:var(--c-primary)"></span>装货时效 <span class="val">' + (loading.h||0) + 'h</span> <span class="pct">' + (loading.pct||0) + '%</span></div>'
-  + '<div class="legend-item"><span class="legend-dot" style="background:var(--c-success)"></span>行驶时效 <span class="val">' + (driving.h||0) + 'h</span> <span class="pct">' + (driving.pct||0) + '%</span></div>'
-  + '<div class="legend-item"><span class="legend-dot" style="background:#7c3aed"></span>充电等待时效 <span class="val">' + chargingWaitValue + (chargingWaitValue === '—' ? '' : 'h') + '</span></div>'
-  + '<div class="legend-item"><span class="legend-dot" style="background:var(--c-accent)"></span>卸货时效 <span class="val">' + (unloading.h||0) + 'h</span> <span class="pct">' + (unloading.pct||0) + '%</span></div>'
-  + '<div class="legend-item"><span class="legend-dot" style="background:var(--c-warning)"></span>充电时效 <span class="val">' + (charging.h||0) + 'h</span> <span class="pct">' + (charging.pct||0) + '%</span></div>'
+  + '<div class="legend-item"><span class="legend-dot" style="background:var(--c-primary)"></span>装货时效 <span class="val">' + loadingHours + 'h</span> <span class="pct">' + loadingPct + '%</span></div>'
+  + '<div class="legend-item"><span class="legend-dot" style="background:var(--c-success)"></span>行驶时效 <span class="val">' + drivingHours + 'h</span> <span class="pct">' + drivingPct + '%</span></div>'
+  + '<div class="legend-item"><span class="legend-dot" style="background:var(--c-accent)"></span>卸货时效 <span class="val">' + unloadingHours + 'h</span> <span class="pct">' + unloadingPct + '%</span></div>'
+  + '<div class="legend-item"><span class="legend-dot" style="background:#7c3aed"></span>充电等待时效 <span class="val">' + chargingWaitValue + (chargingWaitValue === '—' ? '' : 'h') + '</span>' + (hasChargingWait ? ' <span class="pct">' + chargingWaitPct + '%</span>' : '') + '</div>'
+  + '<div class="legend-item"><span class="legend-dot" style="background:var(--c-warning)"></span>充电时效 <span class="val">' + chargingHours + 'h</span> <span class="pct">' + chargingPct + '%</span></div>'
   + '</div></div>'
   + '<div class="time-summary">'
-  + tCard('装货时效', (loading.h||0),' h', (directTaskCount ? directTaskCount + '条直达任务合计' : '—'),'tc-loading')
-  + tCard('行驶时效', (driving.h||0),' h', (taskCountNum ? taskCountNum + '条任务合计' : '—'),'tc-driving')
+  + tCard('装货时效', loadingHours,' h', (directTaskCount ? directTaskCount + '条直达任务合计' : '—'),'tc-loading')
+  + tCard('行驶时效', drivingHours,' h', (taskCountNum ? taskCountNum + '条任务合计' : '—'),'tc-driving')
+  + tCard('卸货时效', unloadingHours,' h', (directTaskCount ? directTaskCount + '条直达任务合计' : '—'),'tc-unloading')
   + tCard('充电等待时效', chargingWaitValue,' h', chargingWaitNote,'tc-charge-wait')
-  + tCard('卸货时效', (unloading.h||0),' h', (directTaskCount ? directTaskCount + '条直达任务合计' : '—'),'tc-unloading')
-  + tCard('充电时效', (charging.h||0),' h', '1次充电记录','tc-charging')
+  + tCard('充电时效', chargingHours,' h', '1次充电记录','tc-charging')
   + '</div>'
   + '</div></div>'
 

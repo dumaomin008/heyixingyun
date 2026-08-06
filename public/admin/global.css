@@ -293,7 +293,7 @@ th.col-seq { text-align: center; }
 .time-seg { height: 100%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: #fff; transition: filter .15s; cursor: pointer; position: relative; overflow: hidden; }
 .time-seg:hover { filter: brightness(1.1); }
 .seg-loading { background: var(--c-primary); } .seg-driving { background: var(--c-success); }
-.seg-unloading { background: var(--c-accent); } .seg-charging { background: var(--c-warning); }
+.seg-unloading { background: var(--c-accent); } .seg-charge-wait { background: #7c3aed; } .seg-charging { background: var(--c-warning); }
 .seg-other { background: #94a3b8; }
 .time-bar-total { font-size: 13px; font-weight: 700; color: var(--c-text-1); width: 70px; flex-shrink: 0; text-align: left; }
 .time-legend { display: flex; gap: 16px; flex-wrap: wrap; padding-left: 64px; }

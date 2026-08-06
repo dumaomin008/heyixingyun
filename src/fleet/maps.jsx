@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { Navigation, PlugZap, TriangleAlert } from "lucide-react";
+import { Navigation, PlugZap } from "lucide-react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { loadAmap } from "./amap.js";
 
 const CENTER = [102.545, 24.337];
 const CLUSTER_GRID_SIZE = 56;
+const STATION_CLUSTER_GRID_SIZE = 56;
 const STATION_ICON = renderToStaticMarkup(<PlugZap aria-hidden="true" />);
-const ALERT_ICON = renderToStaticMarkup(<TriangleAlert aria-hidden="true" />);
 const USER_DIRECTION_ICON = renderToStaticMarkup(<Navigation aria-hidden="true" />);
 
 function isHeading(value) {
@@ -30,12 +30,9 @@ function statusClassOf(vehicle) {
   return "never";
 }
 
-function buildFleetMarkerHtml(vehicle, selected, alertLevel) {
-  const markerText = vehicle.onlineStatus === "在线"
-    ? (vehicle.speed > 0 ? `${vehicle.speed} km/h` : "停车中")
-    : vehicle.onlineStatus === "离线" ? "离线" : "未上线";
-  const alertBadge = alertLevel ? `<i class="fleet-map-vehicle-alert ${alertLevel === "紧急" ? "urgent" : "general"}" aria-hidden="true">${ALERT_ICON}</i>` : "";
-  return `<button type="button" class="fleet-map-vehicle-marker ${statusClassOf(vehicle)} ${selected ? "selected" : ""}" aria-label="${vehicle.plate}，${vehicle.onlineStatus}${alertLevel ? `，${alertLevel}安全告警` : ""}"><span class="fleet-map-vehicle-orbit"><img class="fleet-map-van" src="/fleet-assets/dispatch-van.png" alt="" /></span><b>${markerText}</b>${alertBadge}</button>`;
+function buildFleetMarkerHtml(vehicle, selected) {
+  // 车辆点位仅表达车辆自身状态；告警统一在独立告警列表中处置，避免红色角标遮挡地图。
+  return `<button type="button" class="fleet-map-vehicle-marker ${statusClassOf(vehicle)} ${selected ? "selected" : ""}" aria-label="${vehicle.plate}，${vehicle.onlineStatus}"><span class="fleet-map-vehicle-orbit"><img class="fleet-map-van" src="/fleet-assets/dispatch-van.png" alt="" /></span></button>`;
 }
 
 function buildFleetClusterHtml(count) {
@@ -44,6 +41,10 @@ function buildFleetClusterHtml(count) {
 
 function buildStationMarkerHtml(station, selected) {
   return `<button type="button" class="fleet-map-station-marker ${selected ? "selected" : ""}" aria-label="${station.name}，${station.priceText}，${station.distance.text}"><span>${STATION_ICON}</span><b>${station.priceText}</b><small>${station.distance.text}</small></button>`;
+}
+
+function buildStationClusterHtml(count) {
+  return `<button type="button" class="fleet-map-station-cluster" aria-label="${count} 个充电场站聚合点"><span>${STATION_ICON}</span><b>${count}</b></button>`;
 }
 
 function buildUserLocationMarkerHtml(heading) {
@@ -63,7 +64,7 @@ function MapShell({ containerRef, loadState, loadingText }) {
 }
 
 // 监控页全屏地图：只渲染有定位的车辆，从未上线车辆无坐标不落点。
-export function FleetMapCanvas({ vehicles, selectedId, stations, selectedStationId, showVehicleMarkers = true, showStationMarkers = true, alertLevels = {}, isInfoPanelVisible, onVehicleClick, onStationClick, onMapBlankClick }) {
+export function FleetMapCanvas({ vehicles, selectedId, stations, selectedStationId, showVehicleMarkers = true, showStationMarkers = true, isInfoPanelVisible, onVehicleClick, onStationClick, onMapBlankClick }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const markerRefs = useRef([]);
@@ -71,6 +72,7 @@ export function FleetMapCanvas({ vehicles, selectedId, stations, selectedStation
   const userLocationMarkerRef = useRef(null);
   const previousUserLocationRef = useRef(null);
   const clusterRef = useRef(null);
+  const stationClusterRef = useRef(null);
   const onVehicleClickRef = useRef(onVehicleClick);
   const onStationClickRef = useRef(onStationClick);
   const onMapBlankClickRef = useRef(onMapBlankClick);
@@ -109,6 +111,7 @@ export function FleetMapCanvas({ vehicles, selectedId, stations, selectedStation
       mapRef.current?.destroy?.();
       mapRef.current = null;
       clusterRef.current = null;
+      stationClusterRef.current = null;
       stationMarkerRefs.current = [];
       userLocationMarkerRef.current = null;
     };
@@ -168,8 +171,8 @@ export function FleetMapCanvas({ vehicles, selectedId, stations, selectedStation
     markerRefs.current = priorityVehicles.map((vehicle) => {
       const marker = new AMap.Marker({
         position: [vehicle.lng, vehicle.lat],
-        offset: new AMap.Pixel(-44, -42),
-        content: buildFleetMarkerHtml(vehicle, vehicle.id === selectedId, alertLevels[vehicle.id]),
+        offset: new AMap.Pixel(-23, -23),
+        content: buildFleetMarkerHtml(vehicle, vehicle.id === selectedId),
         zIndex: vehicle.id === selectedId ? 180 : 150,
       });
       marker.on("click", () => onVehicleClickRef.current(vehicle.id));
@@ -204,8 +207,8 @@ export function FleetMapCanvas({ vehicles, selectedId, stations, selectedStation
           renderMarker(context) {
             const vehicle = context.data?.[0]?.vehicle;
             if (!vehicle) return;
-            context.marker.setContent(buildFleetMarkerHtml(vehicle, false, alertLevels[vehicle.id]));
-            context.marker.setOffset(new AMap.Pixel(-44, -42));
+            context.marker.setContent(buildFleetMarkerHtml(vehicle, false));
+            context.marker.setOffset(new AMap.Pixel(-11, -11));
             context.marker.setExtData?.(vehicle.id);
             context.marker.off?.("click");
             context.marker.on("click", () => onVehicleClickRef.current(vehicle.id));
@@ -220,35 +223,94 @@ export function FleetMapCanvas({ vehicles, selectedId, stations, selectedStation
       clusterRef.current?.setMap?.(null);
       clusterRef.current = null;
     };
-  }, [vehicles, selectedId, showVehicleMarkers, alertLevels, loadState]);
+  }, [vehicles, selectedId, showVehicleMarkers, loadState]);
 
-  // 场站沿用司机端的点位展示规则：独立于车辆状态筛选，正常且有坐标的站点直接落图。
+  // 场站数量会持续增长。未选中的点位以独立绿色聚合层呈现，避免在城市视野中
+  // 用价格标签遮挡道路与车辆；搜索或列表选中的场站始终单独露出并可直接查看。
   useEffect(() => {
     const map = mapRef.current;
     const AMap = window.AMap;
     if (loadState !== "ready" || !map || !AMap) return undefined;
 
+    stationClusterRef.current?.setMap?.(null);
+    stationClusterRef.current = null;
     stationMarkerRefs.current.forEach((marker) => map.remove(marker));
     stationMarkerRefs.current = [];
     if (!showStationMarkers) return undefined;
-    stationMarkerRefs.current = stations.map((station) => {
+
+    const selectedStations = stations.filter((station) => station.id === selectedStationId);
+    const clusteredStations = stations.filter((station) => station.id !== selectedStationId);
+    stationMarkerRefs.current = selectedStations.map((station) => {
       const marker = new AMap.Marker({
         position: [station.lng, station.lat],
         offset: new AMap.Pixel(-25, -42),
         content: buildStationMarkerHtml(station, station.id === selectedStationId),
-        // 车辆聚合点的层级为 200；场站必须可直接点击，不能被聚合层吞掉。
-        zIndex: station.id === selectedStationId ? 300 : 280,
+        // 车辆聚合点层级为 200；选中场站必须始终高于场站聚合层。
+        zIndex: 320,
       });
       marker.on("click", () => onStationClickRef.current?.(station.id));
       map.add(marker);
       return marker;
     });
 
+    let cancelled = false;
+    if (clusteredStations.length) {
+      const points = clusteredStations.map((station) => ({
+        lnglat: [station.lng, station.lat],
+        weight: 1,
+        station,
+      }));
+
+      map.plugin(["AMap.MarkerCluster"], () => {
+        if (cancelled || !mapRef.current) return;
+        const cluster = new AMap.MarkerCluster(map, points, {
+          gridSize: STATION_CLUSTER_GRID_SIZE,
+          // 近距离时拆分为可读的价格与距离点位；同一站点无需与车辆聚合共用颜色或层级。
+          maxZoom: 13,
+          renderClusterMarker(context) {
+            const count = context.count;
+            const size = count >= 10 ? 52 : 46;
+            context.marker.setContent(buildStationClusterHtml(count));
+            context.marker.setOffset(new AMap.Pixel(-size / 2, -size / 2));
+            context.marker.setAnchor?.("center");
+            context.marker.setzIndex?.(260);
+            context.marker.off?.("click");
+            context.marker.on("click", (event) => {
+              const nextZoom = Math.min(14, map.getZoom() + 1.5);
+              map.setZoomAndCenter(nextZoom, event.lnglat ?? context.marker.getPosition());
+            });
+          },
+          renderMarker(context) {
+            const station = context.data?.[0]?.station;
+            if (!station) return;
+            context.marker.setContent(buildStationMarkerHtml(station, false));
+            context.marker.setOffset(new AMap.Pixel(-25, -42));
+            context.marker.setExtData?.(station.id);
+            context.marker.setzIndex?.(280);
+            context.marker.off?.("click");
+            context.marker.on("click", () => onStationClickRef.current?.(station.id));
+          },
+        });
+        stationClusterRef.current = cluster;
+      });
+    }
+
     return () => {
+      cancelled = true;
+      stationClusterRef.current?.setMap?.(null);
+      stationClusterRef.current = null;
       stationMarkerRefs.current.forEach((marker) => map.remove(marker));
       stationMarkerRefs.current = [];
     };
   }, [stations, selectedStationId, showStationMarkers, loadState]);
+
+  // 从混合搜索预览选择场站后，保持其他点位上下文并平滑放大至目标场站。
+  useEffect(() => {
+    const map = mapRef.current;
+    const station = stations.find((item) => item.id === selectedStationId);
+    if (loadState !== "ready" || !map || !station) return;
+    map.setZoomAndCenter(13, [station.lng, station.lat], false, 420);
+  }, [stations, selectedStationId, loadState]);
 
   // 当前用户单独使用高层级定位点，避免与车辆聚合或场站点位相互遮挡。
   useEffect(() => {

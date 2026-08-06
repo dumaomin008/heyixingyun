@@ -615,22 +615,22 @@
 .fleet-leader-phone .fleet-map-vehicle-marker.offline { color: #fff; background: #8997a5; }
 .fleet-leader-phone .fleet-map-vehicle-marker.never { color: #fff; background: #c4ccd5; }
 .fleet-leader-phone .fleet-map-vehicle-marker.selected {
-  grid-template-columns: 16px max-content;
+  grid-template-columns: 1fr;
   place-items: center;
-  width: auto;
-  min-width: 0;
-  min-height: 36px;
-  height: 36px;
-  gap: 6px;
-  padding: 0 12px 0 7px;
-  border: 3px solid #fff;
-  border-radius: 19px;
-  color: #fff;
-  background: var(--fleet-blue);
-  box-shadow: 0 0 0 6px rgba(47,140,249,.16), 0 8px 18px rgba(38,115,185,.25);
+  width: 45px;
+  min-width: 45px;
+  min-height: 45px;
+  height: 45px;
+  gap: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: var(--fleet-blue);
+  background: transparent;
+  box-shadow: none;
 }
 .fleet-leader-phone .fleet-map-vehicle-marker.selected > span { width: 10px; height: 10px; background: #fff; box-shadow: 0 0 0 3px rgba(255,255,255,.3); }
-.fleet-leader-phone .fleet-map-vehicle-marker.selected > b { display: block; min-width: 0; padding: 0; border: 0; color: inherit; background: transparent; box-shadow: none; font-size: 11px; letter-spacing: .01em; }
+.fleet-leader-phone .fleet-map-vehicle-marker.selected > b { display: none; }
 
 /* Selected vehicle uses the generated dispatch-van asset. At fleet scale the
    other markers remain concise semantic points, preventing map collisions. */
@@ -641,6 +641,7 @@
 
 /* 地图点位聚合：数字圆点让低缩放车队分布保持可扫读，异常点则继续单独露出。 */
 .fleet-leader-phone .fleet-map-cluster { display: grid; place-items: center; width: 44px; min-width: 44px; height: 44px; min-height: 44px; padding: 0; border: 1.5px solid rgba(255,255,255,.9); border-radius: 50%; color: #fff; background: #2f8cf9; box-shadow: 0 5px 15px rgba(34,105,179,.27), inset 0 0 0 1px rgba(32,109,187,.22); font-variant-numeric: tabular-nums; }.fleet-leader-phone .fleet-map-cluster b { grid-row: 1; grid-column: 1; align-self: center; margin-top: -5px; color: inherit; font-size: 18px; font-weight: 800; line-height: 1; }.fleet-leader-phone .fleet-map-cluster span { grid-row: 1; grid-column: 1; align-self: end; margin-bottom: 5px; color: rgba(255,255,255,.78); font-size: 8px; font-weight: 700; line-height: 1; }.fleet-leader-phone .fleet-map-cluster:active { transform: scale(.94); }
+.fleet-leader-phone .fleet-map-station-cluster { position: relative; display: grid; place-items: center; width: 46px; min-width: 46px; height: 46px; min-height: 46px; padding: 0; border: 2px solid rgba(255,255,255,.94); border-radius: 50%; color: #fff; background: #169d78; box-shadow: 0 6px 16px rgba(19,127,96,.28), inset 0 0 0 1px rgba(13,111,82,.2); font-variant-numeric: tabular-nums; }.fleet-leader-phone .fleet-map-station-cluster > span { position: absolute; top: 6px; left: 6px; display: grid; place-items: center; width: 15px; height: 15px; border-radius: 50%; color: #169d78; background: #fff; }.fleet-leader-phone .fleet-map-station-cluster svg { width: 10px; height: 10px; stroke-width: 2.8; }.fleet-leader-phone .fleet-map-station-cluster > b { margin-top: 8px; color: inherit; font-size: 17px; font-weight: 820; line-height: 1; }.fleet-leader-phone .fleet-map-station-cluster:active { transform: scale(.94); }
 
 .fleet-leader-phone .fleet-source-drawer { border: 1px solid rgba(255,255,255,.92); border-radius: 17px; background: rgba(255,255,255,.9); box-shadow: 0 10px 26px rgba(44,88,120,.15); backdrop-filter: blur(18px); }
 .fleet-leader-phone .fleet-source-search { min-height: 45px; margin: 9px; padding: 0 10px; border: 1px solid #dce8f1; border-radius: 13px; color: var(--fleet-ink); background: rgba(255,255,255,.72); }
@@ -681,8 +682,9 @@
 .fleet-monitor-search { position: absolute; z-index: 10; top: 76px; right: 12px; left: 12px; display: flex; align-items: center; gap: 9px; min-height: 48px; padding: 0 14px; border: 1px solid rgba(255,255,255,.94); border-radius: 16px; color: #6e8799; background: rgba(255,255,255,.94); box-shadow: 0 10px 24px rgba(43,85,113,.13); backdrop-filter: blur(18px); transition: border-color .18s ease, box-shadow .18s ease; }
 .fleet-monitor-search:focus-within { border-color: #92c9fb; box-shadow: 0 0 0 3px rgba(47,140,249,.16), 0 10px 24px rgba(43,85,113,.13); }
 .fleet-monitor-search svg { width: 19px; height: 19px; flex: 0 0 auto; color: #2c91f6; }
-.fleet-monitor-search input { width: 100%; min-width: 0; border: 0; outline: 0; color: var(--fleet-ink); background: transparent; font-size: 13px; font-weight: 650; }
+.fleet-monitor-search input { flex: 1; width: auto; min-width: 0; border: 0; outline: 0; color: var(--fleet-ink); background: transparent; font-size: 13px; font-weight: 650; }
 .fleet-monitor-search input::placeholder { color: #91a3b2; font-weight: 500; }
+.fleet-monitor-search-clear { display: grid; flex: 0 0 auto; place-items: center; width: 30px; height: 30px; margin-right: -6px; padding: 0; border: 0; border-radius: 50%; color: #7e95a6; background: #edf4f8; box-shadow: none; transition: color .18s ease, background .18s ease, transform .18s ease; }.fleet-monitor-search-clear svg { width: 16px; height: 16px; color: currentColor; }.fleet-monitor-search-clear:active { color: #2c91f6; background: #dceeff; transform: scale(.93); }.fleet-monitor-search-clear:focus-visible { outline: 2px solid #2c91f6; outline-offset: 2px; }
 .fleet-monitor-filter-console { position: absolute; z-index: 11; top: 132px; right: 12px; left: 12px; min-height: 102px; pointer-events: none; }
 .fleet-monitor-filter-rail { display: grid; width: 112px; gap: 6px; pointer-events: auto; }
 .fleet-monitor-filter-rail > button { display: grid; grid-template-columns: 18px minmax(0, 1fr) 14px; align-items: center; width: 100%; min-height: 48px; gap: 7px; padding: 6px 8px; border: 1px solid rgba(255,255,255,.92); border-radius: 14px; color: #567086; text-align: left; background: rgba(255,255,255,.92); box-shadow: 0 8px 20px rgba(43,85,113,.12); backdrop-filter: blur(18px); transition: color .18s ease, background .18s ease, transform .18s ease, box-shadow .18s ease; }
@@ -708,13 +710,28 @@
 .fleet-monitor-filter-flyout b { font-size: 9px; font-variant-numeric: tabular-nums; }
 @keyframes fleet-filter-flyout-in { from { opacity: 0; transform: translateX(-7px) scale(.98); } to { opacity: 1; transform: translateX(0) scale(1); } }
 
-/* 地图筛选常驻搜索框下方：两行全量选项可一眼比较，避免二次展开。 */
+/* 任务状态是调度主入口，车辆联网与运行状态收进轻量浮层，组合筛选不占用地图。 */
 .fleet-leader-phone .fleet-monitor-filter-console { display: block; min-height: 0; pointer-events: auto; }
-.fleet-leader-phone .fleet-monitor-filter-flat { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 3px; padding: 4px; border: 1px solid rgba(255,255,255,.92); border-radius: 14px; background: rgba(255,255,255,.93); box-shadow: 0 8px 20px rgba(43,85,113,.12); backdrop-filter: blur(18px); }
-.fleet-leader-phone .fleet-monitor-filter-flat button { display: inline-flex; align-items: center; justify-content: center; min-width: 0; min-height: 34px; padding: 0 2px; border: 0; border-radius: 10px; color: #718499; background: transparent; box-shadow: none; font-size: 10px; font-weight: 720; white-space: nowrap; transition: color .18s ease, background .18s ease, transform .18s ease; }
-.fleet-leader-phone .fleet-monitor-filter-flat button:active { transform: scale(.95); }
-.fleet-leader-phone .fleet-monitor-filter-flat button.active { color: #176fd3; background: #eaf5ff; }
-.fleet-leader-phone .fleet-monitor-filter-flat button.active.task { color: #14866d; background: #eaf8f3; }
+.fleet-leader-phone .fleet-monitor-business-tabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)) 35px; gap: 3px; padding: 4px; border: 1px solid rgba(255,255,255,.92); border-radius: 14px; background: rgba(255,255,255,.93); box-shadow: 0 8px 20px rgba(43,85,113,.12); backdrop-filter: blur(18px); }
+.fleet-leader-phone .fleet-monitor-business-tabs > button { display: inline-flex; align-items: center; justify-content: center; min-width: 0; min-height: 34px; padding: 0 2px; border: 0; border-radius: 10px; color: #718499; background: transparent; box-shadow: none; font-size: 10px; font-weight: 720; white-space: nowrap; transition: color .18s ease, background .18s ease, transform .18s ease; }
+.fleet-leader-phone .fleet-monitor-business-tabs > button:active { transform: scale(.95); }
+.fleet-leader-phone .fleet-monitor-business-tabs > button.active { color: #14866d; background: #eaf8f3; }
+.fleet-leader-phone .fleet-monitor-business-tabs > .fleet-monitor-advanced-trigger { position: relative; color: #52718a; background: #f1f6f9; }
+.fleet-leader-phone .fleet-monitor-business-tabs > .fleet-monitor-advanced-trigger.active { color: #fff; background: #2589ed; box-shadow: 0 4px 10px rgba(37,137,237,.28); }
+.fleet-monitor-advanced-trigger svg { width: 16px; height: 16px; }
+.fleet-monitor-advanced-trigger b { position: absolute; top: -3px; right: -3px; width: 9px; min-width: 9px; height: 9px; padding: 0; border: 2px solid #fff; border-radius: 50%; background: #ef4a4a; box-shadow: 0 2px 5px rgba(196,45,45,.34); }
+.fleet-monitor-advanced-filter { position: absolute; top: 44px; right: 0; display: grid; width: min(278px, calc(100vw - 24px)); gap: 10px; padding: 12px; border: 1px solid rgba(255,255,255,.95); border-radius: 16px; color: #526f84; background: rgba(255,255,255,.97); box-shadow: 0 14px 30px rgba(43,85,113,.18); backdrop-filter: blur(20px); animation: fleet-filter-flyout-in .18s ease both; }
+.fleet-monitor-advanced-filter > header { display: flex; align-items: center; justify-content: space-between; min-height: 20px; }.fleet-monitor-advanced-filter > header b { color: #36546b; font-size: 12px; font-weight: 790; }.fleet-monitor-advanced-filter > header button { min-height: 26px; padding: 0 5px; border: 0; color: #2589ed; background: transparent; box-shadow: none; font-size: 10px; font-weight: 760; }.fleet-monitor-advanced-filter > header button:disabled { color: #b1c0ca; }
+.fleet-monitor-advanced-filter-group { display: grid; gap: 6px; }.fleet-monitor-advanced-filter-group > span { color: #8195a5; font-size: 10px; font-weight: 700; }.fleet-monitor-advanced-filter-group > div { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }.fleet-monitor-advanced-filter-group button { display: inline-flex; align-items: center; justify-content: center; min-width: 0; min-height: 30px; padding: 0 3px; border: 0; border-radius: 9px; color: #71899a; background: #f3f7f9; box-shadow: none; font-size: 10px; font-weight: 730; white-space: nowrap; transition: color .18s ease, background .18s ease, transform .18s ease; }.fleet-monitor-advanced-filter-group button:active { transform: scale(.96); }.fleet-monitor-advanced-filter-group button.active { color: #176fd3; background: #eaf5ff; }.fleet-monitor-advanced-filter-group button.active.runtime { color: #138467; background: #e8f8f1; }.fleet-monitor-advanced-filter > p { margin: -2px 0 0; color: #91a2ae; font-size: 9px; font-weight: 630; line-height: 1.35; }
+.fleet-leader-phone .fleet-monitor-filter-console.is-search-previewing { pointer-events: none; opacity: 0; transform: translateY(9px); transition: opacity .16s ease, transform .18s ease; }
+.fleet-monitor-search-results { position: absolute; z-index: 12; top: 132px; right: 12px; left: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,.94); border-radius: 17px; background: rgba(255,255,255,.97); box-shadow: 0 14px 30px rgba(43,85,113,.17); backdrop-filter: blur(20px); animation: fleet-search-results-in .2s ease both; }
+.fleet-monitor-search-results > header { display: flex; align-items: center; justify-content: space-between; min-height: 39px; padding: 0 13px; background: linear-gradient(105deg, #f7fbff, #fff); }.fleet-monitor-search-results > header span { color: #425f75; font-size: 12px; font-weight: 760; }.fleet-monitor-search-results > header b { padding: 3px 6px; border-radius: 6px; color: #247fe4; background: #eaf5ff; font-size: 10px; }
+.fleet-monitor-search-category-tabs { display: grid; grid-template-columns: .82fr .96fr 1.22fr; gap: 4px; padding: 6px 7px; border-top: 1px solid #edf2f5; border-bottom: 1px solid #edf2f5; background: rgba(250,252,253,.9); }.fleet-monitor-search-category-tabs button { display: inline-flex; align-items: center; justify-content: center; min-width: 0; min-height: 30px; gap: 3px; padding: 0 4px; border: 0; border-radius: 9px; color: #73899a; background: transparent; box-shadow: none; font-size: 10px; font-weight: 730; white-space: nowrap; transition: color .18s ease, background .18s ease, transform .18s ease; }.fleet-monitor-search-category-tabs button b { color: inherit; font-size: 9px; font-weight: 780; }.fleet-monitor-search-category-tabs button.active { color: #176fd3; background: #eaf5ff; }.fleet-monitor-search-category-tabs button.active.station { color: #14866d; background: #eaf8f3; }.fleet-monitor-search-category-tabs button:active { transform: scale(.96); }.fleet-monitor-search-category-tabs button:focus-visible { outline: 2px solid #2c91f6; outline-offset: 1px; }
+.fleet-monitor-search-result-groups { display: grid; gap: 7px; padding: 7px; max-height: 308px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }.fleet-monitor-search-result-groups::-webkit-scrollbar { display: none; }
+.fleet-monitor-search-result-group { padding: 7px; border-radius: 13px; background: #f6f9fb; }.fleet-monitor-search-result-group.station { background: #f4faf8; }.fleet-monitor-search-result-group h2 { display: inline-flex; align-items: center; min-height: 24px; gap: 5px; margin: 0 0 4px; color: #637d90; font-size: 10px; font-weight: 760; }.fleet-monitor-search-result-group h2 > img { width: 25px; height: 20px; object-fit: contain; transform: rotate(-12deg); filter: drop-shadow(0 2px 2px rgba(28,73,105,.14)); }.fleet-monitor-search-result-group h2 > i { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 8px; color: #fff; background: #1ca37d; box-shadow: 0 3px 7px rgba(28,163,125,.2); }.fleet-monitor-search-result-group h2 svg { width: 13px; height: 13px; }
+.fleet-monitor-search-result-group > div { display: grid; gap: 5px; }.fleet-monitor-search-result-group button { display: flex; align-items: center; width: 100%; min-height: 50px; gap: 10px; padding: 7px 9px; border: 0; border-radius: 10px; color: #28455d; text-align: left; background: #fff; box-shadow: 0 3px 8px rgba(44,79,105,.045); transition: background .18s ease, transform .18s ease; }.fleet-monitor-search-result-group button:active { background: #edf7ff; transform: scale(.985); }.fleet-monitor-search-result-group.station button:active { background: #eaf8f2; }.fleet-monitor-search-result-group button > span { display: grid; min-width: 0; gap: 3px; }.fleet-monitor-search-result-group button > span b { overflow: hidden; color: #28455d; font-size: 12px; font-weight: 770; line-height: 1.15; text-overflow: ellipsis; white-space: nowrap; }.fleet-monitor-search-result-group button > span small { overflow: hidden; color: #8195a5; font-size: 9px; font-weight: 650; line-height: 1.15; text-overflow: ellipsis; white-space: nowrap; }.fleet-monitor-search-result-group button > em { flex: 0 0 auto; max-width: 102px; overflow: hidden; margin-left: auto; color: #668095; font-size: 9px; font-style: normal; font-weight: 700; text-align: right; text-overflow: ellipsis; white-space: nowrap; }.fleet-monitor-search-result-group button > strong { display: grid; flex: 0 0 auto; min-width: 62px; gap: 3px; margin-left: auto; text-align: right; }.fleet-monitor-search-result-group button > strong b { color: #237fe9; font-size: 11px; font-weight: 790; line-height: 1; }.fleet-monitor-search-result-group button > strong small { color: #16856c; font-size: 9px; font-weight: 720; line-height: 1; }
+.fleet-monitor-search-empty { margin: 0; padding: 24px 18px; color: #7e92a2; font-size: 12px; text-align: center; }.fleet-monitor-search-empty::before { display: block; width: 30px; height: 30px; margin: 0 auto 8px; border-radius: 10px; background: #edf3f7; content: ""; }.fleet-monitor-search-empty.compact { padding: 18px; }.fleet-monitor-search-empty.compact::before { display: none; }
+@keyframes fleet-search-results-in { from { opacity: 0; transform: translateY(-8px) scale(.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
 .fleet-leader-phone .fleet-monitor-page .fleet-map-toolbar {
   top: auto;
   right: 12px;
@@ -758,7 +775,7 @@
 .fleet-monitor-plate-list { position: absolute; z-index: 13; top: 184px; right: 12px; left: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,.94); border-radius: 17px; background: rgba(255,255,255,.96); box-shadow: 0 14px 30px rgba(43,85,113,.17); backdrop-filter: blur(20px); animation: fleet-plate-list-in .2s ease both; }
 .fleet-monitor-plate-list header { display: flex; align-items: center; justify-content: space-between; min-height: 39px; padding: 0 13px; border-bottom: 1px solid #e9f0f5; }.fleet-monitor-plate-list header span { color: #425f75; font-size: 12px; font-weight: 760; }.fleet-monitor-plate-list header b { padding: 3px 6px; border-radius: 6px; color: #247fe4; background: #eaf5ff; font-size: 10px; }
 .fleet-monitor-plate-list > div { max-height: 122px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }.fleet-monitor-plate-list > div::-webkit-scrollbar { display: none; }
-.fleet-monitor-plate-list > div > button { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 48px; gap: 10px; padding: 7px 13px; border: 0; border-bottom: 1px solid #eef3f6; color: var(--fleet-ink); text-align: left; background: transparent; box-shadow: none; }.fleet-monitor-plate-list > div > button:active { background: #f2f8fc; }.fleet-monitor-plate-list > div > button > span { min-width: 0; }.fleet-monitor-plate-list > div b { display: block; overflow: hidden; color: #27445b; font-size: 13px; font-weight: 760; text-overflow: ellipsis; white-space: nowrap; }.fleet-monitor-plate-list > div small { display: block; overflow: hidden; margin-top: 3px; color: #8092a2; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }.fleet-monitor-plate-list > div p { margin: 0; padding: 18px; color: #8798a8; font-size: 12px; text-align: center; }
+.fleet-monitor-plate-list > div > button { display: flex; align-items: center; width: 100%; min-height: 44px; gap: 8px; padding: 0 13px; border: 0; border-bottom: 1px solid #eef3f6; color: #27445b; text-align: left; background: transparent; box-shadow: none; font-size: 12px; font-weight: 720; }.fleet-monitor-plate-list > div > button:active { background: #f2f8fc; }.fleet-monitor-plate-list > div > button > img { flex: 0 0 auto; width: 27px; height: 22px; object-fit: contain; transform: rotate(-12deg); filter: drop-shadow(0 2px 2px rgba(28,73,105,.16)); }.fleet-monitor-plate-list > div > button > span { display: block; overflow: hidden; min-width: 0; text-overflow: ellipsis; white-space: nowrap; }.fleet-monitor-plate-list > div p { margin: 0; padding: 18px; color: #8798a8; font-size: 12px; text-align: center; }
 .fleet-monitor-plate-list-close { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 38px; gap: 3px; border: 0; color: #618197; background: #f8fbfd; box-shadow: none; font-size: 11px; font-weight: 700; }.fleet-monitor-plate-list-close svg { width: 15px; height: 15px; }
 @keyframes fleet-plate-list-in { from { opacity: 0; transform: translateY(-7px); } to { opacity: 1; transform: translateY(0); } }
 
@@ -997,13 +1014,17 @@
 .fleet-leader-phone .fleet-panel-expand-toggle svg { margin-top: 0; }
 
 /* 场站能力与司机端同口径：同一数据、同一场站卡字段与导航选择。 */
-.fleet-leader-phone .fleet-map-station-marker { display: grid; grid-template-columns: 29px max-content; grid-template-rows: 17px 15px; align-items: center; min-width: 29px; min-height: 34px; padding: 2px 7px 2px 2px; border: 2px solid #fff; border-radius: 18px; color: #237fe9; background: rgba(255,255,255,.97); box-shadow: 0 5px 12px rgba(36,84,112,.2); font-family: inherit; text-align: left; }
-.fleet-leader-phone .fleet-map-station-marker > span { grid-row: 1 / span 2; display: grid; place-items: center; width: 25px; height: 25px; border-radius: 50%; color: #fff; background: #237fe9; box-shadow: 0 2px 6px rgba(35,127,233,.28); }
+.fleet-leader-phone .fleet-map-station-marker { display: grid; grid-template-columns: 29px max-content; grid-template-rows: 17px 15px; align-items: center; min-width: 29px; min-height: 34px; padding: 2px 7px 2px 2px; border: 2px solid #fff; border-radius: 18px; color: #169d78; background: rgba(255,255,255,.97); box-shadow: 0 5px 12px rgba(36,84,112,.2); font-family: inherit; text-align: left; }
+.fleet-leader-phone .fleet-map-station-marker > span { grid-row: 1 / span 2; display: grid; place-items: center; width: 25px; height: 25px; border-radius: 50%; color: #fff; background: #169d78; box-shadow: 0 2px 6px rgba(19,127,96,.28); }
 .fleet-leader-phone .fleet-map-station-marker svg { width: 15px; height: 15px; stroke-width: 2.3; }
 .fleet-leader-phone .fleet-map-station-marker b { align-self: end; color: #28455d; font-size: 10px; font-weight: 780; line-height: 1; }
 .fleet-leader-phone .fleet-map-station-marker small { align-self: start; color: #7890a3; font-size: 8px; font-weight: 650; line-height: 1.1; }
-.fleet-leader-phone .fleet-map-station-marker.selected { border-color: #b9dcff; box-shadow: 0 0 0 5px rgba(47,140,249,.18), 0 6px 14px rgba(36,84,112,.22); }
-.fleet-leader-phone .fleet-map-station-marker.selected > span { background: #176fd3; }
+.fleet-leader-phone .fleet-map-station-marker.selected { position: relative; overflow: visible; border-color: #aee5d3; box-shadow: 0 0 0 5px rgba(22,157,120,.18), 0 6px 14px rgba(36,84,112,.22); animation: fleet-station-focus-in .28s ease both; }
+.fleet-leader-phone .fleet-map-station-marker.selected > span { background: #0d8562; }
+.fleet-leader-phone .fleet-map-station-marker.selected::after { position: absolute; inset: -8px; border: 2px solid rgba(22,157,120,.45); border-radius: 24px; content: ""; pointer-events: none; animation: fleet-station-ripple 1.6s ease-out infinite; }
+@keyframes fleet-station-focus-in { from { transform: scale(.82); } to { transform: scale(1.08); } }
+@keyframes fleet-station-ripple { 0% { opacity: .72; transform: scale(.84); } 100% { opacity: 0; transform: scale(1.22); } }
+@media (prefers-reduced-motion: reduce) { .fleet-leader-phone .fleet-map-station-marker.selected,.fleet-leader-phone .fleet-map-station-marker.selected::after { animation: none; } }
 .fleet-leader-phone .fleet-station-list-trigger { color: #237fe9; }
 .fleet-leader-phone .fleet-map-layer-trigger { position: relative; transition: color .18s ease, background .18s ease, box-shadow .18s ease, transform .18s ease; }
 .fleet-leader-phone .fleet-map-layer-trigger.layer-count-2 { color: #fff; background: #237fe9; box-shadow: 0 8px 18px rgba(35,127,233,.28); }
@@ -1023,13 +1044,6 @@
 .fleet-leader-phone .fleet-map-layer-panel > button b { min-width: 32px; padding: 4px 6px; border-radius: 999px; color: #7d8e9d; background: #edf1f4; font-size: 10px; font-weight: 760; text-align: center; }
 .fleet-leader-phone .fleet-map-layer-panel > button[aria-checked="true"] b { color: #176fd3; background: #eaf5ff; }
 @keyframes fleet-map-layer-in { from { opacity: 0; transform: translateX(8px) scale(.98); } to { opacity: 1; transform: translateX(0) scale(1); } }
-
-/* 告警角标附着在车辆与聚合点上；红色为紧急，橙色为一般。 */
-.fleet-leader-phone .fleet-map-vehicle-marker { position: relative; overflow: visible; }
-.fleet-leader-phone .fleet-map-vehicle-alert { position: absolute; top: -7px; right: -7px; display: grid; place-items: center; width: 16px; height: 16px; border: 2px solid #fff; border-radius: 50%; color: #fff; background: #df8a28; box-shadow: 0 2px 6px rgba(139,76,13,.3); }
-.fleet-leader-phone .fleet-map-vehicle-alert.urgent { background: #d94a48; box-shadow: 0 2px 6px rgba(150,43,41,.32); }
-.fleet-leader-phone .fleet-map-vehicle-alert svg { width: 9px; height: 9px; stroke-width: 2.7; }
-.fleet-leader-phone .fleet-map-vehicle-marker.selected .fleet-map-vehicle-alert { top: -8px; right: -8px; width: 18px; height: 18px; }
 
 /* 当前用户实时定位：蓝点表达位置，方向箭头按设备 heading 或连续坐标方位旋转。 */
 .fleet-leader-phone .fleet-map-user-location { position: relative; display: grid; place-items: center; width: 44px; height: 44px; pointer-events: none; }

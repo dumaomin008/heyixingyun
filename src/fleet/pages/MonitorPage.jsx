@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   Activity,
   BatteryMedium,
@@ -8,6 +8,7 @@ import {
   Crosshair,
   Gauge,
   Layers3,
+  ListFilter,
   MapPin,
   PhoneCall,
   PlugZap,
@@ -16,25 +17,27 @@ import {
   Truck,
   UserRound,
   Weight,
+  X,
 } from "lucide-react";
 import { FleetMapCanvas } from "../maps.jsx";
-import { PrimaryPageHeader, StatusPill } from "../components.jsx";
+import { PrimaryPageHeader } from "../components.jsx";
 import { StationNavigationSheet, StationQuickCard } from "./StationListPage.jsx";
 import { getVehiclePrimaryStatus, getVehicleSecondaryStatus } from "../vehicle-status.js";
 import { FLEET_TODAY, fleetDrivingLogs } from "../data.js";
 
-// TSP 车辆状态与 TMS 任务状态组成两套独立筛选，最终按“且”关系过滤。
-const VEHICLE_FILTERS = [
-  { id: "all", label: "全部", tone: "all" },
-  { id: "在线", label: "在线", tone: "online" },
-  { id: "离线", label: "离线", tone: "offline" },
-  { id: "从未上线", label: "从未上线", tone: "never" },
+// TMS 任务状态为外层入口；车辆状态只保留调度最需要处置的四种状态。
+const VEHICLE_STATUS_FILTERS = [
+  { id: "行驶中", label: "行驶中", kind: "runtime" },
+  { id: "驻车静止", label: "驻车中", kind: "runtime" },
+  { id: "充电中", label: "充电中", kind: "runtime" },
+  { id: "离线", label: "离线", kind: "offline" },
 ];
 const TASK_FILTERS = [
-  { id: "all", label: "所有", tone: "all" },
+  { id: "all", label: "全部", tone: "all" },
   { id: "有任务", label: "有任务", tone: "active" },
   { id: "待运输", label: "待运输", tone: "pending" },
   { id: "无任务", label: "无任务", tone: "none" },
+  { id: "停运", label: "停运", tone: "suspended" },
 ];
 
 function tmsTaskTone(status) {
@@ -75,7 +78,9 @@ export function MonitorPage({
   const monitorRef = useRef(null);
   const vehiclePanelRef = useRef(null);
   const stationPanelRef = useRef(null);
-  const [panelVisible, setPanelVisible] = useState(true);
+  const searchInputRef = useRef(null);
+  // 进入监控页默认保持纯地图，车辆信息仅在用户主动选择车辆后出现。
+  const [panelVisible, setPanelVisible] = useState(false);
   const [plateListOpen, setPlateListOpen] = useState(false);
   const [selectedStation, setSelectedStation] = useState(null);
   const [navigationStation, setNavigationStation] = useState(null);
@@ -83,7 +88,21 @@ export function MonitorPage({
   const [vehicleMarkersVisible, setVehicleMarkersVisible] = useState(true);
   const [stationMarkersVisible, setStationMarkersVisible] = useState(true);
   const [layerPanelOpen, setLayerPanelOpen] = useState(false);
-  const hasVisibleCard = Boolean(selectedStation || (vehicles.length && selectedVehicle && panelVisible));
+  const [advancedFilterOpen, setAdvancedFilterOpen] = useState(false);
+  const [selectedVehicleStatuses, setSelectedVehicleStatuses] = useState([]);
+  const [searchResultCategory, setSearchResultCategory] = useState("all");
+  const matchesSelectedVehicleStatus = (vehicle) => selectedVehicleStatuses.length === 0
+    || selectedVehicleStatuses.some((status) => (
+      status === "离线" ? vehicle.onlineStatus === "离线" : getVehicleSecondaryStatus(vehicle) === status
+    ));
+  const statusFilteredVehicles = vehicles.filter(matchesSelectedVehicleStatus);
+  const activeSelectedVehicle = statusFilteredVehicles.find((vehicle) => vehicle.id === selectedVehicle?.id) ?? null;
+  const hasVisibleCard = Boolean(selectedStation || (statusFilteredVehicles.length && activeSelectedVehicle && panelVisible));
+
+  // 车辆状态改为本页可多选的二级条件，避免复用旧的单选联网状态造成冲突。
+  useEffect(() => {
+    if (filter !== "all") onFilterChange("all");
+  }, [filter, onFilterChange]);
 
   useEffect(() => {
     if (!stationSelection) return;
@@ -132,68 +151,67 @@ export function MonitorPage({
       observer.disconnect();
       window.removeEventListener("resize", updateToolbarPosition);
     };
-  }, [hasVisibleCard, selectedStation, selectedVehicle?.id]);
+  }, [hasVisibleCard, selectedStation, activeSelectedVehicle?.id]);
 
   const keywordKey = keyword.trim().toLowerCase();
+  const isSearchPreviewOpen = Boolean(keywordKey);
   const matchesKeyword = (vehicle) => !keywordKey
     || `${vehicle.plate}${vehicle.trailerPlate}${vehicle.driverName}${vehicle.vin}`.toLowerCase().includes(keywordKey);
-  const matchesVehicleFilter = (vehicle, value = filter) => value === "all" || vehicle.onlineStatus === value;
   const matchesTaskFilter = (vehicle, value = taskFilter) => value === "all" || vehicle.tmsTaskStatus === value;
 
   const plateItems = allVehicles.filter((vehicle) => (
-    matchesVehicleFilter(vehicle) && matchesTaskFilter(vehicle) && matchesKeyword(vehicle)
+    matchesTaskFilter(vehicle) && matchesSelectedVehicleStatus(vehicle) && matchesKeyword(vehicle)
   ));
-  const selectedVehicleFilter = VEHICLE_FILTERS.find((item) => item.id === filter) ?? VEHICLE_FILTERS[0];
+  const stationSearchItems = stations.filter((station) => (
+    `${station.name}${station.shortName ?? ""}${station.address ?? ""}`.toLowerCase().includes(keywordKey)
+  ));
+  const previewVehicles = plateItems.slice(0, 3);
+  const previewStations = stationSearchItems.slice(0, 3);
+  const vehicleSearchCount = plateItems.length;
+  const stationSearchCount = stationSearchItems.length;
+  const searchResultCount = vehicleSearchCount + stationSearchCount;
+  const showVehicleResults = searchResultCategory === "all" || searchResultCategory === "vehicle";
+  const showStationResults = searchResultCategory === "all" || searchResultCategory === "station";
   const selectedTaskFilter = TASK_FILTERS.find((item) => item.id === taskFilter) ?? TASK_FILTERS[0];
-  const plateListTitle = filter === "all" && taskFilter === "all"
+  const selectedVehicleStatus = selectedVehicleStatuses.length === 1
+    ? VEHICLE_STATUS_FILTERS.find((item) => item.id === selectedVehicleStatuses[0])?.label
+    : selectedVehicleStatuses.length > 1 ? `已选 ${selectedVehicleStatuses.length} 种状态` : "全部";
+  const plateListTitle = selectedVehicleStatuses.length === 0 && taskFilter === "all"
     ? "全部车辆"
-    : `${selectedVehicleFilter.label} · ${selectedTaskFilter.label}`;
+    : `${selectedVehicleStatus} · ${selectedTaskFilter.label}`;
+  const advancedFilterBadge = selectedVehicleStatuses.length;
+  const hasAdvancedFilter = advancedFilterBadge > 0;
   const visibleLayerCount = Number(vehicleMarkersVisible) + Number(stationMarkersVisible);
   const layerButtonLabel = visibleLayerCount === 2
     ? "地图图层，车辆点位和充电场站均已显示"
     : visibleLayerCount === 1
       ? "地图图层，已显示 1 个图层"
       : "地图图层，所有图层已隐藏";
-  const alertLevelByVehicle = useMemo(() => safetyAlerts.reduce((levels, alert) => ({
-    ...levels,
-    [alert.vehicle.id]: levels[alert.vehicle.id] === "紧急" || alert.level === "紧急" ? "紧急" : "一般",
-  }), {}), [safetyAlerts]);
   const pendingSafetyAlertCount = safetyAlerts.filter((alert) => !acknowledgedSafetyAlertIds.includes(alert.id)).length;
   const safetyAlertTone = safetyAlerts.some((alert) => alert.level === "紧急") ? "urgent" : "general";
   const safetyAlertBadge = safetyAlerts.length > 99 ? "99+" : safetyAlerts.length;
-  const todayMileage = selectedVehicle
+  const todayMileage = activeSelectedVehicle
     ? Number(fleetDrivingLogs
-      .filter((log) => log.vehicleId === selectedVehicle.id && log.startAt.startsWith(FLEET_TODAY))
+      .filter((log) => log.vehicleId === activeSelectedVehicle.id && log.startAt.startsWith(FLEET_TODAY))
       .reduce((total, log) => total + log.mileage, 0)
       .toFixed(1))
     : 0;
 
-  function handleFilterOption(group, nextFilter) {
-    const isCurrent = group === "vehicle"
-      ? filter === nextFilter && taskFilter === "all"
-      : taskFilter === nextFilter && filter === "all";
-    if (isCurrent && plateListOpen) {
+  function handleTaskFilter(nextFilter) {
+    if (taskFilter === nextFilter && plateListOpen) {
       setPlateListOpen(false);
       return;
     }
-    if (group === "vehicle") {
-      onFilterChange(nextFilter);
-      onTaskFilterChange("all");
-    } else {
-      onFilterChange("all");
-      onTaskFilterChange(nextFilter);
-    }
+    onTaskFilterChange(nextFilter);
     setPlateListOpen(true);
   }
 
-  function handleAllFilters() {
-    if (filter === "all" && taskFilter === "all" && plateListOpen) {
-      setPlateListOpen(false);
-      return;
-    }
-    onFilterChange("all");
-    onTaskFilterChange("all");
-    setPlateListOpen(true);
+  function toggleVehicleStatusFilter(status) {
+    setSelectedVehicleStatuses((current) => (
+      current.includes(status)
+        ? current.filter((item) => item !== status)
+        : [...current, status]
+    ));
   }
 
   function handlePlateSelect(vehicle) {
@@ -207,6 +225,20 @@ export function MonitorPage({
     }
     onVehicleSelect(vehicle.id);
     setPanelVisible(true);
+  }
+
+  function handleSearchVehicleSelect(vehicle) {
+    handlePlateSelect(vehicle);
+    onKeywordChange("");
+  }
+
+  function handleSearchStationSelect(station) {
+    setLayerPanelOpen(false);
+    setPlateListOpen(false);
+    setStationMarkersVisible(true);
+    setSelectedStation(station);
+    setPanelVisible(false);
+    onKeywordChange("");
   }
 
   function toggleVehicleLayer() {
@@ -226,15 +258,17 @@ export function MonitorPage({
     <section ref={monitorRef} className="fleet-monitor-page" aria-label="车辆监控">
       <PrimaryPageHeader title="监控" className="fleet-monitor-title" />
       <FleetMapCanvas
-        vehicles={vehicles}
-        selectedId={selectedVehicle?.id}
+        vehicles={statusFilteredVehicles}
+        selectedId={activeSelectedVehicle?.id}
         stations={stations}
         selectedStationId={selectedStation?.id}
         showVehicleMarkers={vehicleMarkersVisible}
         showStationMarkers={stationMarkersVisible}
-        alertLevels={alertLevelByVehicle}
-        isInfoPanelVisible={panelVisible && Boolean(selectedVehicle) && !selectedStation}
-        onMapBlankClick={() => setLayerPanelOpen(false)}
+        isInfoPanelVisible={panelVisible && Boolean(activeSelectedVehicle) && !selectedStation}
+        onMapBlankClick={() => {
+          setLayerPanelOpen(false);
+          setAdvancedFilterOpen(false);
+        }}
         onVehicleClick={(vehicleId) => {
           setPlateListOpen(false);
           setSelectedStation(null);
@@ -251,25 +285,105 @@ export function MonitorPage({
       />
       <div className="map-fade" />
 
-      <label className="fleet-monitor-search">
-          <Search aria-hidden="true" />
-          <input
-            value={keyword}
-            onChange={(event) => onKeywordChange(event.target.value)}
-            placeholder="搜索车牌 / 挂车 / 当前司机"
-          />
-      </label>
+      <div className="fleet-monitor-search" role="search">
+        <Search aria-hidden="true" />
+        <input
+          ref={searchInputRef}
+          value={keyword}
+          onChange={(event) => {
+            setAdvancedFilterOpen(false);
+            onKeywordChange(event.target.value);
+          }}
+          placeholder="搜索车辆、司机或充电场站"
+          aria-label="搜索车辆、司机或充电场站"
+        />
+        {keyword && (
+          <button
+            type="button"
+            className="fleet-monitor-search-clear"
+            aria-label="清空搜索内容"
+            onClick={() => {
+              onKeywordChange("");
+              searchInputRef.current?.focus();
+            }}
+          ><X aria-hidden="true" /></button>
+        )}
+      </div>
 
-      <section className="fleet-monitor-filter-console" aria-label="地图组合筛选">
-        <nav className="fleet-monitor-filter-flat" aria-label="车辆与任务状态筛选">
-          <button type="button" className={filter === "all" && taskFilter === "all" ? "active all" : "all"} aria-pressed={filter === "all" && taskFilter === "all"} onClick={handleAllFilters}>全部</button>
-          <button type="button" className={filter === "在线" && taskFilter === "all" ? "active vehicle" : "vehicle"} aria-pressed={filter === "在线" && taskFilter === "all"} onClick={() => handleFilterOption("vehicle", "在线")}>在线</button>
-          <button type="button" className={filter === "离线" && taskFilter === "all" ? "active vehicle" : "vehicle"} aria-pressed={filter === "离线" && taskFilter === "all"} onClick={() => handleFilterOption("vehicle", "离线")}>离线</button>
-          <button type="button" className={taskFilter === "有任务" && filter === "all" ? "active task" : "task"} aria-pressed={taskFilter === "有任务" && filter === "all"} onClick={() => handleFilterOption("task", "有任务")}>有任务</button>
-          <button type="button" className={taskFilter === "待运输" && filter === "all" ? "active task" : "task"} aria-pressed={taskFilter === "待运输" && filter === "all"} onClick={() => handleFilterOption("task", "待运输")}>待运输</button>
-          <button type="button" className={taskFilter === "无任务" && filter === "all" ? "active task" : "task"} aria-pressed={taskFilter === "无任务" && filter === "all"} onClick={() => handleFilterOption("task", "无任务")}>无任务</button>
+      <section className={`fleet-monitor-filter-console ${isSearchPreviewOpen ? "is-search-previewing" : ""}`} aria-label="地图组合筛选">
+        <nav className="fleet-monitor-business-tabs" aria-label="任务状态筛选">
+          {TASK_FILTERS.map((item) => (
+            <button key={item.id} type="button" className={taskFilter === item.id ? "active" : ""} aria-pressed={taskFilter === item.id} onClick={() => handleTaskFilter(item.id)}>{item.label}</button>
+          ))}
+          <button
+            type="button"
+            className={`fleet-monitor-advanced-trigger ${advancedFilterOpen || hasAdvancedFilter ? "active" : ""}`}
+            aria-label={hasAdvancedFilter ? `车辆状态筛选，已选择 ${advancedFilterBadge} 项条件` : "车辆状态筛选"}
+            aria-expanded={advancedFilterOpen}
+            aria-controls="fleet-monitor-advanced-filter"
+            onClick={() => setAdvancedFilterOpen((open) => !open)}
+          >
+            <ListFilter aria-hidden="true" />
+            {hasAdvancedFilter && <b aria-hidden="true" />}
+          </button>
         </nav>
+        {advancedFilterOpen && (
+          <section id="fleet-monitor-advanced-filter" className="fleet-monitor-advanced-filter" aria-label="车辆状态高级筛选">
+            <header><b>车辆状态</b></header>
+            <div className="fleet-monitor-advanced-filter-group">
+              <div>
+                {VEHICLE_STATUS_FILTERS.map((item) => {
+                  const isActive = selectedVehicleStatuses.includes(item.id);
+                  return <button key={item.id} type="button" className={isActive ? "active runtime" : ""} aria-pressed={isActive} onClick={() => toggleVehicleStatusFilter(item.id)}>{item.label}</button>;
+                })}
+              </div>
+            </div>
+            <p>行驶、驻车和充电状态均自动限定为在线车辆</p>
+          </section>
+        )}
       </section>
+
+      {isSearchPreviewOpen && (
+        <section className="fleet-monitor-search-results" aria-label="搜索结果" aria-live="polite">
+          <header><span>搜索结果</span><b>匹配 {searchResultCount} 项</b></header>
+          <nav className="fleet-monitor-search-category-tabs" aria-label="搜索结果分类">
+            <button type="button" className={searchResultCategory === "all" ? "active" : ""} aria-pressed={searchResultCategory === "all"} onClick={() => setSearchResultCategory("all")}>全部 <b>{searchResultCount}</b></button>
+            <button type="button" className={searchResultCategory === "vehicle" ? "active vehicle" : "vehicle"} aria-pressed={searchResultCategory === "vehicle"} onClick={() => setSearchResultCategory("vehicle")}>车辆 <b>{vehicleSearchCount}</b></button>
+            <button type="button" className={searchResultCategory === "station" ? "active station" : "station"} aria-pressed={searchResultCategory === "station"} onClick={() => setSearchResultCategory("station")}>充电场站 <b>{stationSearchCount}</b></button>
+          </nav>
+          {searchResultCount ? (
+            <div className="fleet-monitor-search-result-groups">
+              {showVehicleResults && previewVehicles.length > 0 && (
+                <section className="fleet-monitor-search-result-group" aria-label="车辆结果">
+                  <h2><img src="/fleet-assets/dispatch-van.png" alt="" aria-hidden="true" />车辆</h2>
+                  <div>
+                    {previewVehicles.map((vehicle) => (
+                      <button key={vehicle.id} type="button" onClick={() => handleSearchVehicleSelect(vehicle)}>
+                        <span><b>{vehicle.plate}</b><small>{vehicle.driverName || "未分配司机"} · {getVehicleSecondaryStatus(vehicle) ?? getVehiclePrimaryStatus(vehicle)}</small></span>
+                        <em>{vehicle.trailerPlate || "未绑定挂车"}</em>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              )}
+              {showStationResults && previewStations.length > 0 && (
+                <section className="fleet-monitor-search-result-group station" aria-label="充电场站结果">
+                  <h2><i aria-hidden="true"><PlugZap /></i>充电场站</h2>
+                  <div>
+                    {previewStations.map((station) => (
+                      <button key={station.id} type="button" onClick={() => handleSearchStationSelect(station)}>
+                        <span><b>{station.name}</b><small>{station.address || "位置信息暂无"}</small></span>
+                        <strong><b>{station.distance.text}</b><small>{station.priceText}</small></strong>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              )}
+            </div>
+          ) : <p className="fleet-monitor-search-empty">未找到匹配的车辆或充电场站</p>}
+          {searchResultCount > 0 && ((searchResultCategory === "vehicle" && vehicleSearchCount === 0) || (searchResultCategory === "station" && stationSearchCount === 0)) && <p className="fleet-monitor-search-empty compact">当前分类暂无匹配结果</p>}
+        </section>
+      )}
 
       {plateListOpen && (
         <section className="fleet-monitor-plate-list" aria-label={`${plateListTitle}列表`}>
@@ -277,8 +391,8 @@ export function MonitorPage({
           <div>
             {plateItems.length ? plateItems.map((vehicle) => (
               <button key={vehicle.id} type="button" onClick={() => handlePlateSelect(vehicle)}>
-                <span><b>{vehicle.plate}</b><small>{vehicle.driverName} · {vehicle.trailerPlate} · {vehicle.tmsTaskStatus}</small></span>
-                <StatusPill status={vehicle.onlineStatus} />
+                <img src="/fleet-assets/dispatch-van.png" alt="" aria-hidden="true" />
+                <span>{vehicle.plate} - {vehicle.trailerPlate} - {vehicle.driverName}</span>
               </button>
             )) : <p>暂无符合条件的车辆</p>}
           </div>
@@ -287,7 +401,7 @@ export function MonitorPage({
       )}
 
       <div
-        className={`fleet-map-toolbar ${hasVisibleCard ? "is-docked-to-card" : ""} ${hasVisibleCard && toolbarBottom === null ? "is-measuring" : ""} ${plateListOpen ? "is-filtering" : ""}`}
+        className={`fleet-map-toolbar ${hasVisibleCard ? "is-docked-to-card" : ""} ${hasVisibleCard && toolbarBottom === null ? "is-measuring" : ""} ${plateListOpen || isSearchPreviewOpen ? "is-filtering" : ""}`}
         style={toolbarBottom === null ? undefined : { "--fleet-toolbar-bottom": `${toolbarBottom}px` }}
       >
         <span className="fleet-refresh-stamp">更新于 {lastRefreshedAt}</span>
@@ -345,7 +459,7 @@ export function MonitorPage({
           onNavigate={() => setNavigationStation(selectedStation)}
           onCopy={() => onToast("已复制地址")}
         />
-      ) : vehicleMarkersVisible && vehicles.length && selectedVehicle ? (
+      ) : vehicleMarkersVisible && statusFilteredVehicles.length && activeSelectedVehicle && panelVisible ? (
         <section ref={vehiclePanelRef} className={`fleet-vehicle-panel fleet-source-vehicle-panel ${panelVisible ? "is-visible" : "is-dismissed"}`} aria-label="已选车辆信息">
           <button
             type="button"
@@ -358,11 +472,11 @@ export function MonitorPage({
           </button>
           <div className="fleet-vehicle-panel-heading">
             <div className="fleet-vehicle-panel-title">
-              <i className={`fleet-status-dot ${selectedVehicle.onlineStatus === "在线" ? "online" : selectedVehicle.onlineStatus === "离线" ? "offline" : "never"}`} />
-              <h2>{selectedVehicle.plate}</h2>
+              <i className={`fleet-status-dot ${activeSelectedVehicle.onlineStatus === "在线" ? "online" : activeSelectedVehicle.onlineStatus === "离线" ? "offline" : "never"}`} />
+              <h2>{activeSelectedVehicle.plate}</h2>
               <span className="fleet-vehicle-panel-state-tags">
-                <b>{getVehicleSecondaryStatus(selectedVehicle) ?? getVehiclePrimaryStatus(selectedVehicle)}</b>
-                {selectedVehicle.tmsTaskStatus && <span className={`fleet-tms-state ${tmsTaskTone(selectedVehicle.tmsTaskStatus)}`}>{selectedVehicle.tmsTaskStatus}</span>}
+                <b>{getVehicleSecondaryStatus(activeSelectedVehicle) ?? getVehiclePrimaryStatus(activeSelectedVehicle)}</b>
+                {activeSelectedVehicle.tmsTaskStatus && <span className={`fleet-tms-state ${tmsTaskTone(activeSelectedVehicle.tmsTaskStatus)}`}>{activeSelectedVehicle.tmsTaskStatus}</span>}
               </span>
             </div>
             <div className="fleet-vehicle-weather" aria-label="当前天气：多云，24 摄氏度">
@@ -371,38 +485,38 @@ export function MonitorPage({
             </div>
           </div>
 
-          <p className="fleet-panel-vin">VIN {selectedVehicle.vin}</p>
+          <p className="fleet-panel-vin">VIN {activeSelectedVehicle.vin}</p>
 
           <div className="fleet-source-assignment" aria-label="车辆当前任务人员">
-            <div><span><Truck aria-hidden="true" />挂车车牌</span><b>{selectedVehicle.trailerPlate}</b></div>
-            <div><span><UserRound aria-hidden="true" />当前司机</span><b>{selectedVehicle.driverName}</b></div>
+            <div><span><Truck aria-hidden="true" />挂车车牌</span><b>{activeSelectedVehicle.trailerPlate}</b></div>
+            <div><span><UserRound aria-hidden="true" />当前司机</span><b>{activeSelectedVehicle.driverName}</b></div>
           </div>
 
           <dl className="fleet-source-metrics">
-            <div><Weight aria-hidden="true" /><dd><b>{selectedVehicle.vehicleWeight ?? "—"}{selectedVehicle.vehicleWeight !== undefined && <small> t</small>}</b><span>车重</span></dd></div>
-            <div><BatteryMedium aria-hidden="true" /><dd><b>{selectedVehicle.soc === null ? "—" : `${selectedVehicle.soc}%`}</b><span>剩余电量 (SOC)</span></dd></div>
-            <div><Gauge aria-hidden="true" /><dd><b>{selectedVehicle.speed || 0} km/h</b><span>当前速度</span></dd></div>
+            <div><Weight aria-hidden="true" /><dd><b>{activeSelectedVehicle.vehicleWeight ?? "—"}{activeSelectedVehicle.vehicleWeight !== undefined && <small> t</small>}</b><span>车重</span></dd></div>
+            <div><BatteryMedium aria-hidden="true" /><dd><b>{activeSelectedVehicle.soc === null ? "—" : `${activeSelectedVehicle.soc}%`}</b><span>剩余电量 (SOC)</span></dd></div>
+            <div><Gauge aria-hidden="true" /><dd><b>{activeSelectedVehicle.speed || 0} km/h</b><span>当前速度</span></dd></div>
             <div><Activity aria-hidden="true" /><dd><b>{todayMileage.toLocaleString()} <small>km</small></b><span>今日里程</span></dd></div>
           </dl>
 
           <div className="fleet-source-location">
             <MapPin aria-hidden="true" />
-            <p>{selectedVehicle.location}</p>
-            <span><Clock3 aria-hidden="true" />{selectedVehicle.updatedAt}</span>
+            <p>{activeSelectedVehicle.location}</p>
+            <span><Clock3 aria-hidden="true" />{activeSelectedVehicle.updatedAt}</span>
           </div>
 
           <div className="fleet-command-row fleet-source-command-row fleet-source-call-only" aria-label="车辆快捷入口">
-            <a href={`tel:${selectedVehicle.ownerPhone}`} aria-label={`拨打 ${selectedVehicle.plate} 联系人电话 ${selectedVehicle.ownerPhone}`}>
+            <a href={`tel:${activeSelectedVehicle.ownerPhone}`} aria-label={`拨打 ${activeSelectedVehicle.plate} 联系人电话 ${activeSelectedVehicle.ownerPhone}`}>
               <PhoneCall aria-hidden="true" /><span>打电话</span>
             </a>
           </div>
         </section>
-      ) : (
+      ) : (!vehicleMarkersVisible || !statusFilteredVehicles.length || !activeSelectedVehicle) ? (
         <section className="fleet-empty-state">
           <b>暂无符合条件的车辆</b>
           <span>请调整筛选条件或搜索关键字</span>
         </section>
-      )}
+      ) : null}
       {navigationStation && <StationNavigationSheet station={navigationStation} onClose={() => setNavigationStation(null)} onToast={onToast} />}
     </section>
   );
