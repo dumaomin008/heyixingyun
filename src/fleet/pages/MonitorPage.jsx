@@ -26,6 +26,7 @@ import { FLEET_TODAY, fleetDrivingLogs } from "../data.js";
 
 // TMS 任务状态为外层入口；车辆状态只保留调度最需要处置的四种状态。
 const VEHICLE_STATUS_FILTERS = [
+  { id: "all", label: "全部", kind: "all" },
   { id: "行驶中", label: "行驶中", kind: "runtime" },
   { id: "驻车静止", label: "驻车中", kind: "runtime" },
   { id: "充电中", label: "充电中", kind: "runtime" },
@@ -33,7 +34,8 @@ const VEHICLE_STATUS_FILTERS = [
 ];
 const TASK_FILTERS = [
   { id: "all", label: "全部", tone: "all" },
-  { id: "有任务", label: "有任务", tone: "active" },
+  // 数据层仍以“有任务”标识执行中任务，界面统一采用更直观的“运输中”。
+  { id: "有任务", label: "运输中", tone: "active" },
   { id: "待运输", label: "待运输", tone: "pending" },
   { id: "无任务", label: "无任务", tone: "none" },
   { id: "停运", label: "停运", tone: "suspended" },
@@ -161,6 +163,12 @@ export function MonitorPage({
   const plateItems = allVehicles.filter((vehicle) => (
     matchesTaskFilter(vehicle) && matchesSelectedVehicleStatus(vehicle) && matchesKeyword(vehicle)
   ));
+  const taskFilterCounts = TASK_FILTERS.reduce((counts, item) => {
+    counts[item.id] = allVehicles.filter((vehicle) => (
+      matchesSelectedVehicleStatus(vehicle) && (item.id === "all" || vehicle.tmsTaskStatus === item.id)
+    )).length;
+    return counts;
+  }, {});
   const stationSearchItems = stations.filter((station) => (
     `${station.name}${station.shortName ?? ""}${station.address ?? ""}`.toLowerCase().includes(keywordKey)
   ));
@@ -206,6 +214,10 @@ export function MonitorPage({
   }
 
   function toggleVehicleStatusFilter(status) {
+    if (status === "all") {
+      setSelectedVehicleStatuses([]);
+      return;
+    }
     setSelectedVehicleStatuses((current) => (
       current.includes(status)
         ? current.filter((item) => item !== status)
@@ -312,7 +324,7 @@ export function MonitorPage({
       <section className={`fleet-monitor-filter-console ${isSearchPreviewOpen ? "is-search-previewing" : ""}`} aria-label="地图组合筛选">
         <nav className="fleet-monitor-business-tabs" aria-label="任务状态筛选">
           {TASK_FILTERS.map((item) => (
-            <button key={item.id} type="button" className={taskFilter === item.id ? "active" : ""} aria-pressed={taskFilter === item.id} onClick={() => handleTaskFilter(item.id)}>{item.label}</button>
+            <button key={item.id} type="button" className={taskFilter === item.id ? "active" : ""} aria-label={`${item.label}，${taskFilterCounts[item.id]} 辆`} aria-pressed={taskFilter === item.id} onClick={() => handleTaskFilter(item.id)}><span>{item.label}</span><b aria-hidden="true">{taskFilterCounts[item.id]}</b></button>
           ))}
           <button
             type="button"
@@ -332,7 +344,9 @@ export function MonitorPage({
             <div className="fleet-monitor-advanced-filter-group">
               <div>
                 {VEHICLE_STATUS_FILTERS.map((item) => {
-                  const isActive = selectedVehicleStatuses.includes(item.id);
+                  const isActive = item.id === "all"
+                    ? selectedVehicleStatuses.length === 0
+                    : selectedVehicleStatuses.includes(item.id);
                   return <button key={item.id} type="button" className={isActive ? "active runtime" : ""} aria-pressed={isActive} onClick={() => toggleVehicleStatusFilter(item.id)}>{item.label}</button>;
                 })}
               </div>
