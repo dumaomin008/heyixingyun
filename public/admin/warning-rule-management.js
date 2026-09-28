@@ -1,4 +1,4 @@
-/* 规则设置 → 预警规则：配置运输监控中心现有五类预置规则。 */
+/* 规则设置 → 预警规则：配置运输监控中心现有六类预置规则。 */
 (function () {
   'use strict';
 
@@ -41,7 +41,7 @@
     });
   }
   function tabsHtml(list) {
-    var cats = ['全部', '车辆', '运输', '作业', '单据'];
+    var cats = ['全部', '车辆', '运输', '作业', '单据', '安全'];
     return cats.map(function (name) {
       var count = name === '全部' ? list.length : list.filter(function (item) { return item.category === name; }).length;
       return '<button class="tab' + (category === name ? ' active' : '') + '" type="button" onclick="wrCategory(\'' + name + '\')">' + name + '<span class="count">' + count + '</span></button>';
@@ -106,7 +106,6 @@
       + '<section class="detail-section"><div class="detail-section-title">触发与恢复</div><div class="wr-condition"><span>' + esc(item.config.compare) + '</span><input id="wrThreshold" class="form-control-text" type="number" min="1" max="' + max + '" value="' + item.config.threshold + '"><b>' + esc(item.config.unit) + '</b></div>'
       + '<div class="form-grid col-2 wr-config-grid">'
       + field('告警等级', '<select class="form-control-text" id="wrLevel"><option' + (item.level === '一般' ? ' selected' : '') + '>一般</option><option' + (item.level === '严重' ? ' selected' : '') + '>严重</option><option' + (item.level === '紧急' ? ' selected' : '') + '>紧急</option></select>', '')
-      + field('重复提醒间隔', '<div class="wr-unit-input"><input class="form-control-text" id="wrRepeat" type="number" min="5" max="1440" value="' + item.repeatIntervalMinutes + '"><span>分钟</span></div>', '')
       + field('适用范围', '<select class="form-control-text" id="wrScope" onchange="wrScopeChange()"><option' + (item.scopeType === '全部项目' ? ' selected' : '') + '>全部项目</option><option' + (item.scopeType === '指定项目' ? ' selected' : '') + '>指定项目</option></select>', '')
       + field('指定项目', '<select class="form-control-text" id="wrProject"' + (item.scopeType !== '指定项目' ? ' disabled' : '') + '><option>玉溪项目</option></select>', '')
       + field('启用状态', '<select class="form-control-text" id="wrEnabled"><option value="on"' + (item.enabled ? ' selected' : '') + '>启用</option><option value="off"' + (!item.enabled ? ' selected' : '') + '>停用</option></select>', '', true)
@@ -119,15 +118,13 @@
     var item = rule(editingId);
     if (!item) return;
     var threshold = Number((document.getElementById('wrThreshold') || {}).value);
-    var repeat = Number((document.getElementById('wrRepeat') || {}).value);
     var scope = (document.getElementById('wrScope') || {}).value || '全部项目';
     var level = (document.getElementById('wrLevel') || {}).value || item.level;
     var enabled = ((document.getElementById('wrEnabled') || {}).value || 'on') === 'on';
     var max = item.config.unit === '%' ? 100 : item.config.unit === 'km/h' ? 200 : 1440;
     if (!Number.isInteger(threshold) || threshold < 1 || threshold > max) { toast('请输入 1 到 ' + max + ' 的整数阈值'); return; }
-    if (!Number.isInteger(repeat) || repeat < 5 || repeat > 1440) { toast('重复提醒间隔应为 5 到 1440 分钟'); return; }
     if (item.enabled && !enabled && !window.confirm('停用后系统将不再根据该规则产生新的告警，已产生的告警不受影响。')) return;
-    store().updateRule(editingId, { threshold: threshold, repeatIntervalMinutes: repeat, scopeType: scope, level: level, enabled: enabled });
+    store().updateRule(editingId, { threshold: threshold, scopeType: scope, level: level, enabled: enabled });
     closeDrawer();
     if (window.app) window.app.render();
     toast('预警规则已保存');
@@ -136,7 +133,7 @@
     var item = rule(id);
     if (!item) return;
     if (item.enabled && !window.confirm('停用后系统将不再根据该规则产生新的告警，已产生的告警不受影响。')) return;
-    store().updateRule(id, { enabled: !item.enabled, threshold: item.config.threshold, repeatIntervalMinutes: item.repeatIntervalMinutes, scopeType: item.scopeType, level: item.level });
+    store().updateRule(id, { enabled: !item.enabled, threshold: item.config.threshold, scopeType: item.scopeType, level: item.level });
     if (window.app) window.app.render();
     toast(item.enabled ? '规则已停用' : '规则已启用');
   }

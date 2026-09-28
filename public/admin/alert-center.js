@@ -47,7 +47,11 @@
   }
   function thresholdText(event) {
     var snap = event.ruleSnapshot || {};
-    return (snap.compare || '') + ' ' + (snap.threshold == null ? '—' : snap.threshold) + (snap.unit === '%' ? '%' : ' ' + (snap.unit || ''));
+    var config = snap.config || {};
+    var threshold = config.threshold == null ? snap.threshold : config.threshold;
+    var unit = config.unit || snap.unit || '';
+    var compare = config.compare || snap.compare || '';
+    return compare + ' ' + (threshold == null ? '—' : threshold) + (unit === '%' ? '%' : ' ' + unit);
   }
   function durationText(event) {
     var start = new Date(String(event.triggeredAt).replace(/-/g, '/')).getTime();
@@ -95,7 +99,7 @@
     var html = '<div class="filter-panel ac-filter"><div class="filter-row">'
       + field('项目', '<select class="filter-control" id="acProject">' + options(['玉溪项目'], filters.project) + '</select>')
       + field('告警类型', '<select class="filter-control" id="acType">' + options(ruleNames, filters.type) + '</select>')
-      + field('告警分类', '<select class="filter-control" id="acCategory">' + options(['车辆', '运输', '作业', '单据'], filters.category) + '</select>')
+      + field('告警分类', '<select class="filter-control" id="acCategory">' + options(['车辆', '运输', '作业', '单据', '安全'], filters.category) + '</select>')
       + field('告警等级', '<select class="filter-control" id="acLevel">' + options(['一般', '严重', '紧急'], filters.level) + '</select>')
       + field('事件状态', '<select class="filter-control" id="acEventStatus">' + options(['发生中', '已恢复'], filters.eventStatus) + '</select>')
       + field('处理状态', '<select class="filter-control" id="acHandleStatus">' + options(['待处理', '处理中', '已处理'], filters.handleStatus) + '</select>')
@@ -107,11 +111,12 @@
     return html + '</div><div class="filter-actions"><button class="btn btn-default" type="button" onclick="acReset()">重置</button><button class="btn btn-primary" type="button" onclick="acApply()">查询</button></div></div>';
   }
   function liveRow(event) {
+    var facts = Array.isArray(event.facts) ? event.facts : [];
     var actions = '<a class="link" href="javascript:void(0)" onclick="acView(\'' + esc(event.id) + '\')">查看</a>';
     if (event.handleStatus === '待处理') actions += '<a class="link" href="javascript:void(0)" onclick="acAck(\'' + esc(event.id) + '\')">知悉</a>';
     else actions += '<span class="ac-action-done">已知悉</span>';
     if (event.handleStatus !== '已处理') actions += '<a class="link" href="javascript:void(0)" onclick="acHandle(\'' + esc(event.id) + '\')">处理</a>';
-    return '<tr><td class="sticky-col col-time">' + esc(event.triggeredAt) + '</td><td>' + levelBadge(event.level) + '</td><td><strong>' + esc(event.type) + '</strong></td><td>' + esc(event.projectName) + '</td><td>' + esc(event.plate) + '</td><td>' + esc(event.driverName) + '</td><td class="col-mono">' + esc(event.taskId || '—') + '</td><td class="ac-content-cell" title="' + esc(event.facts.join('；')) + '">' + esc(event.facts[0] || event.type) + '</td><td>' + esc(event.currentValueText || event.currentValue) + '</td><td>' + esc(thresholdText(event)) + '</td><td>' + esc(durationText(event)) + '</td><td>' + eventBadge(event.eventStatus) + '</td><td>' + handleBadge(event.handleStatus) + '</td><td>' + esc(event.handlerName || event.acknowledgedBy || '—') + '</td><td class="sticky-col-r ac-actions">' + actions + '</td></tr>';
+    return '<tr><td class="sticky-col col-time">' + esc(event.triggeredAt) + '</td><td>' + levelBadge(event.level) + '</td><td><strong>' + esc(event.type) + '</strong></td><td>' + esc(event.projectName) + '</td><td>' + esc(event.plate) + '</td><td>' + esc(event.driverName) + '</td><td class="col-mono">' + esc(event.taskId || '—') + '</td><td class="ac-content-cell" title="' + esc(facts.join('；')) + '">' + esc(facts[0] || event.type) + '</td><td>' + esc(event.currentValueText || event.currentValue) + '</td><td>' + esc(thresholdText(event)) + '</td><td>' + esc(durationText(event)) + '</td><td>' + eventBadge(event.eventStatus) + '</td><td>' + handleBadge(event.handleStatus) + '</td><td>' + esc(event.handlerName || event.acknowledgedBy || '—') + '</td><td class="sticky-col-r ac-actions">' + actions + '</td></tr>';
   }
   function recordRow(event) {
     return '<tr><td class="sticky-col col-mono"><a class="link" href="javascript:void(0)" onclick="acView(\'' + esc(event.id) + '\')">' + esc(event.id) + '</a></td><td>' + esc(event.type) + '</td><td>' + levelBadge(event.level) + '</td><td>' + esc(event.projectName) + '</td><td>' + esc(event.plate) + '</td><td>' + esc(event.driverName) + '</td><td class="col-mono">' + esc(event.taskId || '—') + '</td><td class="col-time">' + esc(event.triggeredAt) + '</td><td class="col-time">' + esc(event.recoveredAt || '—') + '</td><td>' + esc(durationText(event)) + '</td><td>' + eventBadge(event.eventStatus) + '</td><td>' + handleBadge(event.handleStatus) + '</td><td>' + esc(event.handlerName || '—') + '</td><td class="col-time">' + esc(event.handledAt || '—') + '</td><td class="ac-content-cell">' + esc(event.handlingResult || '—') + '</td><td class="sticky-col-r"><a class="link" href="javascript:void(0)" onclick="acView(\'' + esc(event.id) + '\')">查看</a></td></tr>';
@@ -178,6 +183,40 @@
       return '<li class="is-' + String(log.action).toLowerCase() + '"><i></i><div><time>' + esc(log.operatedAt) + '</time><b>' + esc(names[log.action] || log.action) + '</b><p>' + esc(log.remark || '') + (log.operator ? '<span> · ' + esc(log.operator) + '</span>' : '') + '</p></div></li>';
     }).join('');
   }
+  function metricText(minutes) {
+    var value = Number(minutes);
+    if (!isFinite(value)) return '—';
+    if (value >= 60) return Math.floor(value / 60) + '小时' + (value % 60 ? value % 60 + '分钟' : '');
+    return value + '分钟';
+  }
+  function evidenceHtml(event) {
+    var metrics = event.metrics || {};
+    var threshold = thresholdText(event);
+    var items = [];
+    switch (event.ruleCode) {
+      case 'TRANSPORT_PARKING':
+        items = [['当前车速', metrics.speed == null ? '—' : metrics.speed + ' km/h'], ['停车开始时间', metrics.parkingStartedAt], ['连续停车时长', metricText(metrics.parkingMinutes)], ['触发阈值', threshold], ['当前位置', event.location]];
+        break;
+      case 'PARKING_AREA':
+        items = [['区域 / 围栏名称', metrics.fenceName || event.location], ['进入时间', metrics.enteredAt], ['当前停留时长', metricText(metrics.areaDwellMinutes)], ['触发阈值', threshold], ['当前任务单', event.taskId]];
+        break;
+      case 'VEHICLE_OVERSPEED':
+        items = [['当前车速', metrics.speed == null ? '—' : metrics.speed + ' km/h'], ['触发阈值', threshold], ['当前位置', event.location]];
+        break;
+      case 'UNLOAD_WEIGHBILL_MISSING':
+        items = [['任务单号', event.taskId], ['卸货地', metrics.unloadLocation || event.location], ['离开卸货地时间', metrics.unloadDepartedAt], ['当前磅单状态', metrics.weighbillUploaded ? '已上传' : '未上传'], ['已等待时长', metricText(metrics.waitingMinutes)], ['触发阈值', threshold]];
+        break;
+      case 'VEHICLE_LOW_SOC':
+        items = [['当前 SOC', metrics.soc == null ? '—' : metrics.soc + '%'], ['触发阈值', threshold], ['当前任务单', event.taskId], ['当前位置', event.location]];
+        break;
+      case 'DRIVER_FATIGUE':
+        items = [['司机', event.driverName], ['车辆', event.plate], ['当前任务单', event.taskId], ['本次连续驾驶开始时间', metrics.drivingStartedAt], ['当前连续驾驶时长', event.eventStatus === '已恢复' && metrics.peakContinuousDrivingMinutes ? metricText(metrics.peakContinuousDrivingMinutes) : metricText(metrics.continuousDrivingMinutes)], ['触发阈值', threshold]];
+        break;
+      default:
+        items = [['当前值', event.currentValueText || event.currentValue], ['触发阈值', threshold]];
+    }
+    return items.map(function (item) { return kv(item[0], esc(item[1] == null ? '—' : item[1])); }).join('');
+  }
   function detailDrawer(id) {
     var event = store().getEvent(id);
     if (!event) return;
@@ -185,7 +224,8 @@
       + '<div class="ac-drawer-body">' + summary(event)
       + '<section class="detail-section"><div class="detail-section-title">车辆信息</div><dl class="ac-kv">' + kv('车牌号', esc(event.plate)) + kv('司机', esc(event.driverName)) + kv('当前位置', esc(event.location)) + kv('车辆状态', event.eventStatus === '发生中' ? '异常状态持续中' : '已恢复正常') + '</dl></section>'
       + '<section class="detail-section"><div class="detail-section-title">关联运输</div><dl class="ac-kv">' + kv('任务单号', '<a class="link" href="javascript:void(0)" onclick="acOpenTask(\'' + esc(event.taskId) + '\')">' + esc(event.taskId || '—') + '</a>') + kv('线路', esc(event.route || '—')) + kv('货物', esc(event.cargo || '—')) + kv('项目', esc(event.projectName)) + '</dl></section>'
-      + '<section class="detail-section"><div class="detail-section-title">告警信息</div><dl class="ac-kv">' + kv('触发时间', esc(event.triggeredAt)) + kv('触发规则', esc(event.ruleSnapshot.ruleName)) + kv('当前值', esc(event.currentValueText || event.currentValue)) + kv('触发时规则', esc(thresholdText(event))) + kv('恢复条件', esc(event.ruleSnapshot.recovery)) + kv('恢复时间', esc(event.recoveredAt || '—')) + '</dl><div class="ac-facts"><b>监控事实</b>' + (event.facts || []).map(function (fact) { return '<span>' + esc(fact) + '</span>'; }).join('') + '</div></section>'
+      + '<section class="detail-section"><div class="detail-section-title">告警信息</div><dl class="ac-kv">' + kv('触发时间', esc(event.triggeredAt)) + kv('触发规则', esc((event.ruleSnapshot || {}).ruleName || event.type)) + kv('恢复条件', esc(((event.ruleSnapshot || {}).recoveryConfig || {}).description || (event.ruleSnapshot || {}).recovery || '—')) + kv('恢复时间', esc(event.recoveredAt || '—')) + '</dl></section>'
+      + '<section class="detail-section"><div class="detail-section-title">业务证据</div><dl class="ac-kv">' + evidenceHtml(event) + '</dl><div class="ac-facts"><b>监控事实</b>' + (event.facts || []).map(function (fact) { return '<span>' + esc(fact) + '</span>'; }).join('') + '</div></section>'
       + (event.handlingResult ? '<section class="detail-section"><div class="detail-section-title">处理结果</div><dl class="ac-kv">' + kv('处理方式', esc(event.handlingType)) + kv('处理人', esc(event.handlerName)) + kv('处理时间', esc(event.handledAt)) + kv('处理结果', esc(event.handlingResult)) + '</dl></section>' : '')
       + '<section class="detail-section"><div class="detail-section-title">告警时间线</div><ol class="ac-timeline">' + timelineHtml(event) + '</ol></section></div>'
       + '<footer class="ac-drawer-footer"><button class="btn btn-default" type="button" onclick="acCloseDrawer()">关闭</button>' + (event.handleStatus !== '已处理' ? '<button class="btn btn-primary" type="button" onclick="acHandle(\'' + esc(event.id) + '\')">处理告警</button>' : '') + '</footer>';
@@ -197,7 +237,7 @@
     if (!event) return;
     var types = ['联系司机', '联系现场', '调整任务', '安排充电', '车辆检修', '补传资料', '无需处理', '其他'];
     var html = '<header class="ac-drawer-header"><div><small>' + esc(event.id) + '</small><h2>处理告警</h2></div><button type="button" onclick="acCloseDrawer()" aria-label="关闭">×</button></header>'
-      + '<div class="ac-drawer-body"><div class="ac-handle-context"><strong>' + esc(event.type) + '</strong><span>' + esc(event.plate + ' · ' + event.driverName + ' · ' + (event.taskId || '无任务单')) + '</span><p>' + esc(event.facts[0] || '') + '</p></div>'
+      + '<div class="ac-drawer-body"><div class="ac-handle-context"><strong>' + esc(event.type) + '</strong><span>' + esc(event.plate + ' · ' + event.driverName + ' · ' + (event.taskId || '无任务单')) + '</span><p>' + esc((event.facts || [])[0] || '') + '</p></div>'
       + '<section class="detail-section"><div class="detail-section-title">处理信息</div><div class="form-grid">'
       + '<div class="form-item"><label class="form-label">处理方式 <span class="req">*</span></label><select class="form-control-text" id="acHandlingType"><option value="">请选择</option>' + types.map(function (type) { return option(type, type, false); }).join('') + '</select></div>'
       + '<div class="form-item"><label class="form-label">处理结果 <span class="req">*</span></label><textarea class="form-control-text ac-result" id="acHandlingResult" maxlength="300" placeholder="请说明核实情况、采取的措施和后续安排"></textarea></div>'
