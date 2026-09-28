@@ -221,6 +221,47 @@
   .wr-modal-form { border-right: 0; border-bottom: 1px solid var(--c-border); }
   .wr-vehicle-pane { min-height: 280px; }
 }
+
+/* 2026-09-28 统一规则配置页：表格主视图 + 右侧配置抽屉。 */
+.wr-page { min-width: 1040px; }
+.wr-summary { display: flex; align-items: center; gap: 10px; }
+.wr-summary span { display: flex; align-items: baseline; gap: 5px; padding: 8px 11px; border: 1px solid var(--c-border); border-radius: 8px; background: #fff; color: var(--c-text-3); font-size: 11.5px; }
+.wr-summary b { color: var(--c-text-1); font-size: 17px; font-variant-numeric: tabular-nums; }
+.wr-toolbar { align-items: center; }
+.wr-tabs { display: flex; gap: 2px; }
+.wr-tabs .tab { min-height: 34px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; color: var(--c-text-2); font: inherit; font-size: 12.5px; cursor: pointer; }
+.wr-tabs .tab:hover { background: #f1f5f9; color: var(--c-primary); }
+.wr-tabs .tab.active { background: var(--c-primary-l); color: var(--c-primary); font-weight: 650; }
+.wr-tabs .count { margin-left: 5px; color: var(--c-text-3); font-size: 10.5px; }
+.wr-tabs .active .count { color: var(--c-primary); }
+.wr-search { display: flex; align-items: center; width: 220px; height: 34px; padding: 0 10px; border: 1px solid var(--c-border); border-radius: 8px; background: #fff; }
+.wr-search:focus-within { border-color: var(--c-primary); box-shadow: 0 0 0 2px rgba(37,99,235,.1); }
+.wr-search svg { width: 14px; color: var(--c-text-3); }
+.wr-search input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: var(--c-text-1); font: inherit; font-size: 12px; }
+.wr-table { min-width: 1380px; }
+.wr-table th, .wr-table td { white-space: nowrap; }
+.wr-table .wr-desc { max-width: 300px; overflow: hidden; text-overflow: ellipsis; color: var(--c-text-2); }
+.wr-rule-name, .wr-code { display: block; }
+.wr-rule-name { color: var(--c-text-1); font-size: 13px; }
+.wr-code { margin-top: 3px; color: var(--c-text-3); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; }
+.wr-switch { display: inline-flex; align-items: center; gap: 7px; min-width: 68px; border: 0; background: transparent; color: var(--c-text-3); font: inherit; font-size: 11.5px; cursor: pointer; }
+.wr-switch i { position: relative; width: 30px; height: 17px; border-radius: 99px; background: #cbd5e1; transition: background .2s; }
+.wr-switch i::after { position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(15,23,42,.3); content: ""; transition: transform .2s; }
+.wr-switch.is-on { color: var(--c-primary); }
+.wr-switch.is-on i { background: var(--c-primary); }
+.wr-switch.is-on i::after { transform: translateX(13px); }
+.wr-drawer { width: min(620px, calc(100vw - 48px)); }
+.wr-textarea { min-height: 74px; resize: none; }
+.wr-condition { display: grid; grid-template-columns: 120px minmax(0, 180px) auto; align-items: center; gap: 10px; margin-bottom: 16px; padding: 14px; border: 1px solid #bfdbfe; border-radius: 10px; background: #eff6ff; color: var(--c-text-1); font-size: 13px; }
+.wr-condition span { color: #1d4ed8; font-weight: 650; }
+.wr-condition b { color: var(--c-text-2); font-size: 12px; }
+.wr-config-grid { margin-top: 0; }
+.wr-unit-input { position: relative; }
+.wr-unit-input input { padding-right: 52px; }
+.wr-unit-input span { position: absolute; top: 50%; right: 11px; color: var(--c-text-3); font-size: 11.5px; transform: translateY(-50%); }
+.wr-recovery { display: grid; grid-template-columns: 74px 1fr; gap: 10px; margin-top: 14px; padding: 11px 12px; border-radius: 8px; background: #f8fafc; color: var(--c-text-2); font-size: 12px; }
+.wr-recovery b { color: var(--c-text-1); }
+.wr-meta { display: flex; justify-content: space-between; color: var(--c-text-3); font-size: 11.5px; }
 @media (prefers-reduced-motion: reduce) {
   .wr-switch i { transition: none; }
 }
