@@ -142,19 +142,17 @@
     });
   }
   function validateLevels(item, levels) {
-    if (!levels.some(function (level) { return level.enabled; })) return '请至少启用一个预警等级';
+    var enabledLevels = levels.filter(function (level) { return level.enabled; });
+    if (!enabledLevels.length) return '请至少启用一个预警等级';
     var fieldName = item.code === 'VEHICLE_OVERSPEED' ? 'speedThreshold' : item.code === 'DRIVER_FATIGUE' ? 'thresholdMinutes' : 'threshold';
-    var values = levels.map(function (level) { return Number(level[fieldName]); });
-    if (values.some(function (value) { return !isFinite(value) || value <= 0; })) return '请填写三个等级的有效阈值';
-    if (item.code === 'VEHICLE_LOW_SOC') {
-      if (!(values[0] > values[1])) return '严重等级 SOC 阈值必须低于一般等级';
-      if (!(values[1] > values[2])) return '紧急等级 SOC 阈值必须低于严重等级';
-    } else {
-      if (!(values[0] < values[1])) return '严重等级阈值必须高于一般等级';
-      if (!(values[1] < values[2])) return '紧急等级阈值必须高于严重等级';
+    var values = enabledLevels.map(function (level) { return Number(level[fieldName]); });
+    if (values.some(function (value) { return !isFinite(value) || value <= 0; })) return '请填写已启用等级的有效阈值';
+    for (var index = 1; index < values.length; index += 1) {
+      var ordered = item.code === 'VEHICLE_LOW_SOC' ? values[index - 1] > values[index] : values[index - 1] < values[index];
+      if (!ordered) return enabledLevels[index].level + '等级' + (item.code === 'VEHICLE_LOW_SOC' ? ' SOC 阈值必须低于' : '阈值必须高于') + enabledLevels[index - 1].level + '等级';
     }
-    if (item.code === 'VEHICLE_OVERSPEED' && levels.some(function (level) { return !Number.isInteger(level.durationSeconds) || level.durationSeconds < 60 || level.durationSeconds > 7200; })) return '各等级持续时间应为 1 到 120 分钟';
-    if (item.code === 'DRIVER_FATIGUE' && levels.some(function (level) { return level.thresholdMinutes < 60 || level.thresholdMinutes > 1440; })) return '连续驾驶时长应为 1 到 24 小时';
+    if (item.code === 'VEHICLE_OVERSPEED' && enabledLevels.some(function (level) { return !Number.isInteger(level.durationSeconds) || level.durationSeconds < 60 || level.durationSeconds > 7200; })) return '各已启用等级的持续时间应为 1 到 120 分钟';
+    if (item.code === 'DRIVER_FATIGUE' && enabledLevels.some(function (level) { return level.thresholdMinutes < 60 || level.thresholdMinutes > 1440; })) return '已启用等级的连续驾驶时长应为 1 到 24 小时';
     return '';
   }
   function save() {
