@@ -58,6 +58,8 @@
 .ac-timeline li { position: relative; display: grid; grid-template-columns: 14px 1fr; gap: 10px; min-height: 70px; }
 .ac-timeline li:not(:last-child)::before { position: absolute; top: 14px; bottom: -2px; left: 5px; width: 1px; background: #cbd5e1; content: ""; }
 .ac-timeline li > i { position: relative; z-index: 1; width: 11px; height: 11px; margin-top: 3px; border: 2px solid #fff; border-radius: 50%; background: var(--c-primary); box-shadow: 0 0 0 2px #bfdbfe; }
+.ac-timeline li.is-level_upgraded > i { background: #dc2626; box-shadow: 0 0 0 2px #fecaca; }
+.ac-timeline li.is-level_downgraded > i { background: #f59e0b; box-shadow: 0 0 0 2px #fde68a; }
 .ac-timeline li.is-recovered > i, .ac-timeline li.is-handled > i { background: #10b981; box-shadow: 0 0 0 2px #a7f3d0; }
 .ac-timeline time { display: block; color: var(--c-text-3); font-size: 10.5px; }
 .ac-timeline b { display: block; margin-top: 3px; color: var(--c-text-1); font-size: 13px; }

@@ -1,7 +1,4 @@
-/*
- * 统一告警数据层
- * 本期只消费运输监控中心已有的六类预警信号，不改写大屏展示与交互。
- */
+/* 统一告警数据层：六类多级规则、事件升降级、恢复、处理与 Demo 持久化。 */
 (function () {
   'use strict';
 
@@ -10,6 +7,7 @@
   var OPERATOR = '李调度';
   var PROJECT_ID = 'YX001';
   var PROJECT_NAME = '玉溪项目';
+  var LEVELS = ['一般', '严重', '紧急'];
   var state;
 
   function clone(value) { return value == null ? value : JSON.parse(JSON.stringify(value)); }
@@ -19,236 +17,337 @@
     return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate()) + ' '
       + pad(date.getHours()) + ':' + pad(date.getMinutes()) + ':' + pad(date.getSeconds());
   }
-  function levelRank(level) { return level === '紧急' ? 3 : level === '严重' ? 2 : 1; }
+  function levelRank(level) { return level === '紧急' ? 3 : level === '严重' ? 2 : level === '一般' ? 1 : 0; }
+  function ruleByCode(rules, code) { return (rules || []).filter(function (item) { return item.code === code; })[0] || null; }
+  function levelByName(rule, name) { return (rule && rule.levels || []).filter(function (item) { return item.level === name; })[0] || null; }
+  function durationLevel(level, threshold) { return { level: level, enabled: true, threshold: threshold }; }
+  function speedLevel(level, speed, seconds) { return { level: level, enabled: true, speedThreshold: speed, durationSeconds: seconds }; }
+  function fatigueLevel(level, minutes) { return { level: level, enabled: true, thresholdMinutes: minutes }; }
 
   function seedRules() {
     return [
       {
-        id: 'RULE_TRANSPORT_PARKING', code: 'TRANSPORT_PARKING', name: '停车预警', category: '运输',
-        description: '车辆处于运输相关状态、速度为 0 且连续停车达到设定时长时触发', enabled: true,
-        scopeType: '全部项目', projectIds: [], level: '严重',
-        config: { threshold: 10, unit: '分钟', compare: '连续停车 ≥' },
-        recoveryConfig: { description: '车辆重新行驶' }, updatedBy: '系统预置', updatedAt: '2026-09-28 09:00:00'
+        id: 'RULE_TRANSPORT_PARKING', code: 'TRANSPORT_PARKING', name: '停车预警', category: '运输', enabled: true,
+        description: '车辆处于运输相关状态并持续停车达到分级时长时触发', scopeType: '全部项目', projectIds: [],
+        levels: [durationLevel('一般', 30), durationLevel('严重', 60), durationLevel('紧急', 120)],
+        recoveryConfig: { description: '车辆重新进入正常行驶状态' }, updatedBy: '系统预置', updatedAt: '2026-10-08 09:00:00'
       },
       {
-        id: 'RULE_PARKING_AREA', code: 'PARKING_AREA', name: '停车区域预警', category: '作业',
-        description: '车辆在运输监控中心定义的业务区域内停留达到设定时长时触发', enabled: true,
-        scopeType: '全部项目', projectIds: [], level: '严重',
-        config: { threshold: 15, unit: '分钟', compare: '区域停留 ≥' },
-        recoveryConfig: { description: '车辆离开对应业务区域' }, updatedBy: '系统预置', updatedAt: '2026-09-28 09:00:00'
+        id: 'RULE_PARKING_AREA', code: 'PARKING_AREA', name: '停车区域预警', category: '作业', enabled: true,
+        description: '车辆在业务区域或电子围栏内停留达到分级时长时触发', scopeType: '全部项目', projectIds: [],
+        levels: [durationLevel('一般', 60), durationLevel('严重', 120), durationLevel('紧急', 180)],
+        recoveryConfig: { description: '车辆离开对应业务区域' }, updatedBy: '系统预置', updatedAt: '2026-10-08 09:00:00'
       },
       {
-        id: 'RULE_VEHICLE_OVERSPEED', code: 'VEHICLE_OVERSPEED', name: '车速预警', category: '车辆',
-        description: '车辆当前速度达到配置阈值时触发', enabled: true,
-        scopeType: '全部项目', projectIds: [], level: '紧急',
-        config: { threshold: 80, unit: 'km/h', compare: '当前车速 ≥' },
-        recoveryConfig: { description: '车辆速度恢复至阈值以下' }, updatedBy: '系统预置', updatedAt: '2026-09-28 09:00:00'
+        id: 'RULE_VEHICLE_OVERSPEED', code: 'VEHICLE_OVERSPEED', name: '车速预警', category: '车辆', enabled: true,
+        description: '车辆达到分级车速并连续保持相应时长时触发', scopeType: '全部项目', projectIds: [],
+        levels: [speedLevel('一般', 80, 60), speedLevel('严重', 90, 60), speedLevel('紧急', 100, 60)],
+        recoveryConfig: { description: '车速恢复至最低启用等级阈值以下' }, updatedBy: '系统预置', updatedAt: '2026-10-08 09:00:00'
       },
       {
-        id: 'RULE_UNLOAD_WEIGHBILL_MISSING', code: 'UNLOAD_WEIGHBILL_MISSING', name: '卸货后未上传磅单', category: '单据',
-        description: '离开卸货地后达到等待时长且卸货磅单仍未上传时触发', enabled: true,
-        scopeType: '全部项目', projectIds: [], level: '紧急',
-        config: { threshold: 15, unit: '分钟', compare: '离开后等待 ≥' },
-        recoveryConfig: { description: '卸货磅单上传成功' }, updatedBy: '系统预置', updatedAt: '2026-09-28 09:00:00'
+        id: 'RULE_UNLOAD_WEIGHBILL_MISSING', code: 'UNLOAD_WEIGHBILL_MISSING', name: '卸货后未上传磅单', category: '单据', enabled: true,
+        description: '离开卸货地且磅单未上传，等待时间达到分级阈值时触发', scopeType: '全部项目', projectIds: [],
+        levels: [durationLevel('一般', 15), durationLevel('严重', 30), durationLevel('紧急', 60)],
+        recoveryConfig: { description: '卸货磅单上传成功' }, updatedBy: '系统预置', updatedAt: '2026-10-08 09:00:00'
       },
       {
-        id: 'RULE_VEHICLE_LOW_SOC', code: 'VEHICLE_LOW_SOC', name: 'SOC预警', category: '车辆',
-        description: '车辆剩余电量低于或等于配置阈值时触发', enabled: true,
-        scopeType: '全部项目', projectIds: [], level: '严重',
-        config: { threshold: 20, unit: '%', compare: '当前 SOC ≤' },
-        recoveryConfig: { description: 'SOC 恢复至配置阈值以上' }, updatedBy: '系统预置', updatedAt: '2026-09-28 09:00:00'
+        id: 'RULE_VEHICLE_LOW_SOC', code: 'VEHICLE_LOW_SOC', name: 'SOC预警', category: '车辆', enabled: true,
+        description: '车辆 SOC 降至分级阈值时触发，数值越低风险越高', scopeType: '全部项目', projectIds: [],
+        levels: [durationLevel('一般', 30), durationLevel('严重', 20), durationLevel('紧急', 10)],
+        recoveryConfig: { description: 'SOC 恢复至最低启用等级阈值以上' }, updatedBy: '系统预置', updatedAt: '2026-10-08 09:00:00'
       },
       {
-        id: 'RULE_DRIVER_FATIGUE', code: 'DRIVER_FATIGUE', name: '疲劳驾驶预警', category: '安全',
-        description: '司机本次连续驾驶时长达到配置阈值时触发（Demo 使用连续驾驶时长数据）', enabled: true,
-        scopeType: '全部项目', projectIds: [], level: '紧急',
-        config: { threshold: 4, unit: '小时', compare: '连续驾驶 ≥' },
-        recoveryConfig: { description: '连续驾驶周期结束或已满足休息条件' }, updatedBy: '系统预置', updatedAt: '2026-09-28 09:00:00'
+        id: 'RULE_DRIVER_FATIGUE', code: 'DRIVER_FATIGUE', name: '疲劳驾驶预警', category: '安全', enabled: true,
+        description: '根据车辆运行行为、当前绑定司机和连续驾驶周期计算疲劳风险', scopeType: '全部项目', projectIds: [],
+        levels: [fatigueLevel('一般', 210), fatigueLevel('严重', 240), fatigueLevel('紧急', 270)],
+        recoveryConfig: { description: '达到有效休息时长或驾驶员发生变更', restThresholdMinutes: 20 },
+        updatedBy: '系统预置', updatedAt: '2026-10-08 09:00:00'
       }
     ];
   }
 
-  function signal(base, metrics, facts) {
-    base.metrics = metrics;
-    base.facts = facts;
+  function signal(base, metrics, facts, history) {
+    base.metrics = metrics || {};
+    base.facts = facts || [];
+    base.history = history || [];
     return base;
   }
 
-  /* 临界值以下的信号用于验证配置参与判断，默认不会生成告警。 */
+  /* 最新信号来自运输监控上下文；历史片段仅用于展示完整事件生命周期。 */
   function monitorSignals() {
     return [
-      signal({ sourceId: 'vw-bill', ruleCode: 'UNLOAD_WEIGHBILL_MISSING', plate: '云A·F4470', driverName: '马旺', driverId: 'D023', taskId: 'Y20260904000023', route: '昆钢 → 北城', cargo: '煤炭', location: '北城卸货区外侧', triggeredAt: '2026-09-28 13:57:00', currentValue: 26, displayValue: '未上传 · 已等待26分钟', sourceStatus: 'active' },
-        { unloadLocation: '北城卸货区', unloadDepartedAt: '2026-09-28 13:31:00', leftUnload: true, weighbillUploaded: false, waitingMinutes: 26 }, ['13:31 离开北城卸货地', '卸货磅单：未上传', '已等待 26 分钟']),
-      signal({ sourceId: 'vw-bill-safe', ruleCode: 'UNLOAD_WEIGHBILL_MISSING', plate: '云A·B1026', driverName: '陈飞', driverId: 'D026', taskId: 'Y20260904000026', route: '研和 → 北城', cargo: '水泥', location: '北城卸货区外侧', triggeredAt: '2026-09-28 14:20:00', currentValue: 10, displayValue: '未上传 · 已等待10分钟', sourceStatus: 'active' },
-        { unloadLocation: '北城卸货区', unloadDepartedAt: '2026-09-28 14:10:00', leftUnload: true, weighbillUploaded: false, waitingMinutes: 10 }, ['14:10 离开北城卸货地', '卸货磅单：未上传', '已等待 10 分钟']),
-      signal({ sourceId: 'vw-stop', ruleCode: 'TRANSPORT_PARKING', plate: '云A·D8021', driverName: '李宏俊', driverId: 'D021', taskId: 'Y20260904000021', route: '大开门 → 昆钢', cargo: '水渣', location: '昆磨高速辅路', triggeredAt: '2026-09-28 09:48:00', currentValue: 42, displayValue: '连续停车42分钟', sourceStatus: 'active' },
-        { transportRelevant: true, parkingMinutes: 42, parkingStartedAt: '2026-09-28 09:48:00', speed: 0 }, ['当前位置：昆磨高速辅路', '车辆速度：0 km/h', '连续停车：42分钟']),
-      signal({ sourceId: 'vw-stop-safe', ruleCode: 'TRANSPORT_PARKING', plate: '云A·C3518', driverName: '赵勇', driverId: 'D025', taskId: 'Y20260904000025', route: '昆钢 → 研和', cargo: '钢材', location: '昆磨高速入口', triggeredAt: '2026-09-28 14:18:00', currentValue: 8, displayValue: '连续停车8分钟', sourceStatus: 'active' },
-        { transportRelevant: true, parkingMinutes: 8, parkingStartedAt: '2026-09-28 14:18:00', speed: 0 }, ['当前位置：昆磨高速入口', '车辆速度：0 km/h', '连续停车：8分钟']),
-      signal({ sourceId: 'vw-site', ruleCode: 'PARKING_AREA', plate: '云A10103', driverName: '周强', driverId: 'D028', taskId: 'Y20260904000028', route: '昆钢 → 北城', cargo: '钢材', location: '北城卸货区', triggeredAt: '2026-09-28 08:26:00', currentValue: 76, displayValue: '区域停留1小时16分钟', sourceStatus: 'active' },
-        { insideBusinessArea: true, areaDwellMinutes: 76, fenceName: '北城卸货区', enteredAt: '2026-09-28 08:26:00' }, ['08:26 进入北城卸货区', '当前仍在该业务区域', '停留时长：1小时16分钟']),
-      signal({ sourceId: 'vw-speed', ruleCode: 'VEHICLE_OVERSPEED', plate: '云A·E1936', driverName: '王磊', driverId: 'D022', taskId: 'Y20260904000022', route: '北城 → 研和', cargo: '铁精粉', location: 'G8511 昆磨高速', triggeredAt: '2026-09-28 14:24:00', currentValue: 86, displayValue: '当前车速86 km/h', sourceStatus: 'active' },
-        { speed: 86 }, ['当前速度：86 km/h', '当前位置：G8511 昆磨高速']),
-      signal({ sourceId: 'vw-speed-safe', ruleCode: 'VEHICLE_OVERSPEED', plate: '云A·B1026', driverName: '陈飞', driverId: 'D026', taskId: 'Y20260904000026', route: '研和 → 北城', cargo: '水泥', location: '玉溪大道', triggeredAt: '2026-09-28 14:22:00', currentValue: 75, displayValue: '当前车速75 km/h', sourceStatus: 'active' },
-        { speed: 75 }, ['当前速度：75 km/h', '当前位置：玉溪大道']),
-      signal({ sourceId: 'vw-soc', ruleCode: 'VEHICLE_LOW_SOC', plate: '云A·D8021', driverName: '李宏俊', driverId: 'D021', taskId: 'Y20260904000021', route: '大开门 → 昆钢', cargo: '水渣', location: '昆钢 → 研和途中', triggeredAt: '2026-09-28 13:52:00', currentValue: 18, displayValue: '当前SOC 18%', sourceStatus: 'active' },
-        { soc: 18 }, ['当前 SOC：18%', '当前任务：Y20260904000021', '当前位置：昆钢 → 研和途中']),
-      signal({ sourceId: 'vw-soc-safe', ruleCode: 'VEHICLE_LOW_SOC', plate: '云A·C3518', driverName: '赵勇', driverId: 'D025', taskId: 'Y20260904000025', route: '昆钢 → 研和', cargo: '钢材', location: '昆磨高速入口', triggeredAt: '2026-09-28 14:18:00', currentValue: 34, displayValue: '当前SOC 34%', sourceStatus: 'active' },
-        { soc: 34 }, ['当前 SOC：34%', '当前任务：Y20260904000025']),
-      signal({ sourceId: 'vw-fatigue-safe', ruleCode: 'DRIVER_FATIGUE', drivingCycleId: 'D031-20260928-AM', plate: '云A·K5208', driverName: '杨明', driverId: 'D031', taskId: 'Y20260904000031', route: '研和 → 昆钢', cargo: '矿石', location: '昆磨高速研和段', triggeredAt: '2026-09-28 13:50:00', currentValue: 230, displayValue: '连续驾驶3小时50分钟', sourceStatus: 'active' },
-        { continuousDrivingMinutes: 230, drivingStartedAt: '2026-09-28 10:00:00', drivingCycleActive: true }, ['10:00 开始本次连续驾驶', '当前连续驾驶：3小时50分钟']),
-      signal({ sourceId: 'vw-fatigue', ruleCode: 'DRIVER_FATIGUE', drivingCycleId: 'D021-20260928-AM', plate: '云A·D8021', driverName: '李宏俊', driverId: 'D021', taskId: 'Y20260904000021', route: '大开门 → 昆钢', cargo: '水渣', location: '昆磨高速辅路', triggeredAt: '2026-09-28 14:00:00', currentValue: 240, displayValue: '连续驾驶4小时', sourceStatus: 'active' },
-        { continuousDrivingMinutes: 240, drivingStartedAt: '2026-09-28 10:00:00', drivingCycleActive: true }, ['10:00 开始本次连续驾驶', '当前连续驾驶：4小时']),
-      signal({ sourceId: 'vw-fatigue', ruleCode: 'DRIVER_FATIGUE', drivingCycleId: 'D021-20260928-AM', plate: '云A·D8021', driverName: '李宏俊', driverId: 'D021', taskId: 'Y20260904000021', route: '大开门 → 昆钢', cargo: '水渣', location: '昆磨高速辅路', triggeredAt: '2026-09-28 14:00:00', currentValue: 252, displayValue: '连续驾驶4小时12分钟', sourceStatus: 'active' },
-        { continuousDrivingMinutes: 252, drivingStartedAt: '2026-09-28 10:00:00', drivingCycleActive: true }, ['10:00 开始本次连续驾驶', '当前连续驾驶：4小时12分钟', '同一驾驶周期持续更新']),
-      signal({ sourceId: 'vw-r1', ruleCode: 'PARKING_AREA', plate: '云A66666', driverName: '冯二', driverId: 'D040', taskId: 'Y20260904000040', route: '大开门 → 研和', cargo: '铁精粉', location: '大开门充电站', triggeredAt: '2026-09-28 08:32:00', recoveredAt: '2026-09-28 09:06:00', currentValue: 34, displayValue: '区域停留34分钟', sourceStatus: 'recovered', wasTriggered: true },
-        { insideBusinessArea: false, areaDwellMinutes: 34, fenceName: '大开门充电站', enteredAt: '2026-09-28 08:32:00' }, ['08:32 触发预警', '09:06 离开充电站', '09:06 自动恢复']),
-      signal({ sourceId: 'vw-r2', ruleCode: 'TRANSPORT_PARKING', plate: '云A12345', driverName: '张三', driverId: 'D018', taskId: 'Y20260904000018', route: '昆钢 → 北城', cargo: '钢材', location: '昆钢厂区外侧', triggeredAt: '2026-09-28 07:51:00', recoveredAt: '2026-09-28 08:09:00', currentValue: 18, displayValue: '连续停车18分钟', sourceStatus: 'recovered', wasTriggered: true },
-        { transportRelevant: true, parkingMinutes: 18, parkingStartedAt: '2026-09-28 07:51:00', speed: 32 }, ['07:51 触发预警', '08:09 恢复正常行驶', '08:09 自动恢复']),
-      signal({ sourceId: 'vw-r3', ruleCode: 'UNLOAD_WEIGHBILL_MISSING', plate: '云A10104', driverName: '刘伟', driverId: 'D019', taskId: 'Y20260904000019', route: '昆钢 → 研和', cargo: '煤炭', location: '研和卸货区', triggeredAt: '2026-09-28 07:20:00', recoveredAt: '2026-09-28 07:31:00', currentValue: 26, displayValue: '已等待26分钟后上传', sourceStatus: 'recovered', wasTriggered: true },
-        { unloadLocation: '研和卸货区', unloadDepartedAt: '2026-09-28 07:05:00', leftUnload: true, weighbillUploaded: true, waitingMinutes: 26 }, ['07:05 离开卸货地', '07:20 触发预警', '07:31 上传磅单并自动恢复']),
-      signal({ sourceId: 'vw-fatigue-r1', ruleCode: 'DRIVER_FATIGUE', drivingCycleId: 'D033-20260927-PM', plate: '云A·H3188', driverName: '何平', driverId: 'D033', taskId: 'Y20260903000033', route: '北城 → 研和', cargo: '煤炭', location: '研和停车区', triggeredAt: '2026-09-27 18:00:00', recoveredAt: '2026-09-27 18:18:00', currentValue: 0, displayValue: '连续驾驶周期已结束', sourceStatus: 'recovered', wasTriggered: true },
-        { continuousDrivingMinutes: 0, peakContinuousDrivingMinutes: 258, drivingStartedAt: '2026-09-27 13:42:00', drivingCycleActive: false }, ['13:42 开始本次连续驾驶', '18:00 触发疲劳驾驶预警', '18:18 连续驾驶周期结束并自动恢复'])
+      signal({ sourceId: 'live-stop', ruleCode: 'TRANSPORT_PARKING', plate: '云A·D8021', driverName: '李宏俊', driverId: 'D021', taskId: 'Y20260904000021', route: '大开门 → 昆钢', cargo: '水渣', location: '昆磨高速辅路', triggeredAt: '2026-10-08 08:30:00', sourceStatus: 'active' },
+        { transportRelevant: true, speed: 0, parkingStartedAt: '2026-10-08 08:30:00', parkingMinutes: 72 }, ['车辆处于运输中', '当前车速：0 km/h', '连续停车：72分钟'], [
+          { action: 'TRIGGERED', level: '一般', at: '2026-10-08 09:00:00', remark: '连续停车达到30分钟' },
+          { action: 'LEVEL_UPGRADED', from: '一般', to: '严重', at: '2026-10-08 09:30:00', remark: '连续停车达到60分钟' }
+        ]),
+      signal({ sourceId: 'live-area', ruleCode: 'PARKING_AREA', plate: '云A10103', driverName: '周强', driverId: 'D028', taskId: 'Y20260904000028', route: '昆钢 → 北城', cargo: '钢材', location: '北城卸货区', triggeredAt: '2026-10-08 07:45:00', sourceStatus: 'active' },
+        { insideBusinessArea: true, areaDwellMinutes: 135, fenceName: '北城卸货区', enteredAt: '2026-10-08 07:45:00' }, ['07:45 进入北城卸货区', '当前仍在业务区域', '停留时长：2小时15分钟']),
+      signal({ sourceId: 'live-speed', ruleCode: 'VEHICLE_OVERSPEED', plate: '云A·E1936', driverName: '王磊', driverId: 'D022', taskId: 'Y20260904000022', route: '北城 → 研和', cargo: '铁精粉', location: 'G8511 昆磨高速', triggeredAt: '2026-10-08 10:12:00', sourceStatus: 'active' },
+        { speed: 105, overspeedStartedAt: '2026-10-08 10:12:00', overspeedDurationSeconds: 95 }, ['当前车速：105 km/h', '连续超速：1分35秒', '当前位置：G8511 昆磨高速'], [
+          { action: 'TRIGGERED', level: '一般', at: '2026-10-08 10:13:00', remark: '85 km/h 持续60秒' },
+          { action: 'LEVEL_UPGRADED', from: '一般', to: '严重', at: '2026-10-08 10:13:20', remark: '95 km/h 持续60秒' },
+          { action: 'LEVEL_UPGRADED', from: '严重', to: '紧急', at: '2026-10-08 10:13:35', remark: '105 km/h 持续60秒' }
+        ]),
+      signal({ sourceId: 'live-bill', ruleCode: 'UNLOAD_WEIGHBILL_MISSING', plate: '云A·F4470', driverName: '马旺', driverId: 'D023', taskId: 'Y20260904000023', route: '昆钢 → 北城', cargo: '煤炭', location: '北城卸货区外侧', triggeredAt: '2026-10-08 09:34:00', sourceStatus: 'active' },
+        { unloadLocation: '北城卸货区', unloadDepartedAt: '2026-10-08 09:34:00', leftUnload: true, weighbillUploaded: false, waitingMinutes: 36 }, ['09:34 离开北城卸货地', '卸货磅单：未上传', '已等待36分钟']),
+      signal({ sourceId: 'live-soc', ruleCode: 'VEHICLE_LOW_SOC', plate: '云A·D8021', driverName: '李宏俊', driverId: 'D021', taskId: 'Y20260904000021', route: '大开门 → 昆钢', cargo: '水渣', location: '昆钢方向途中', triggeredAt: '2026-10-08 09:50:00', sourceStatus: 'active' },
+        { soc: 18 }, ['当前 SOC：18%', '当前任务：Y20260904000021', '当前位置：昆钢方向途中'], [
+          { action: 'TRIGGERED', level: '一般', at: '2026-10-08 09:50:00', remark: 'SOC 降至28%' },
+          { action: 'LEVEL_UPGRADED', from: '一般', to: '严重', at: '2026-10-08 10:08:00', remark: 'SOC 降至18%' }
+        ]),
+      signal({ sourceId: 'live-fatigue', ruleCode: 'DRIVER_FATIGUE', drivingCycleId: 'DC-D021-20261008-01', plate: '云A·D8021', vehicleId: 'V021', driverName: '李宏俊', driverId: 'D021', taskId: 'Y20260904000021', route: '大开门 → 昆钢', cargo: '水渣', location: '昆磨高速辅路', triggeredAt: '2026-10-08 06:00:00', sourceStatus: 'active' },
+        { drivingCycleId: 'DC-D021-20261008-01', drivingStartedAt: '2026-10-08 06:00:00', continuousDrivingMinutes: 252, currentSpeed: 63, parkingStartedAt: null, continuousParkingMinutes: 0, driverBindingStartedAt: '2026-10-08 05:55:00', drivingCycleActive: true }, ['车辆当前绑定司机：李宏俊', '06:00 开始本次连续驾驶', '当前连续驾驶：4小时12分钟']),
+      signal({ sourceId: 'history-soc', ruleCode: 'VEHICLE_LOW_SOC', plate: '云A·S1008', driverName: '罗伟', driverId: 'D038', taskId: 'Y20261007000038', route: '研和 → 北城', cargo: '水泥', location: '北城充电站', triggeredAt: '2026-10-07 08:00:00', recoveredAt: '2026-10-07 11:00:00', sourceStatus: 'recovered', wasTriggered: true, finalLevel: '一般' },
+        { soc: 35 }, ['SOC 已恢复至35%', '事件自动恢复'], [
+          { action: 'TRIGGERED', level: '一般', at: '2026-10-07 08:00:00', remark: 'SOC 28%' },
+          { action: 'LEVEL_UPGRADED', from: '一般', to: '严重', at: '2026-10-07 08:30:00', remark: 'SOC 18%' },
+          { action: 'LEVEL_UPGRADED', from: '严重', to: '紧急', at: '2026-10-07 09:00:00', remark: 'SOC 8%' },
+          { action: 'LEVEL_DOWNGRADED', from: '紧急', to: '严重', at: '2026-10-07 09:40:00', remark: 'SOC 15%' },
+          { action: 'LEVEL_DOWNGRADED', from: '严重', to: '一般', at: '2026-10-07 10:20:00', remark: 'SOC 25%' },
+          { action: 'RECOVERED', at: '2026-10-07 11:00:00', remark: 'SOC 35%，所有启用等级均不满足' }
+        ]),
+      signal({ sourceId: 'history-fatigue-rest', ruleCode: 'DRIVER_FATIGUE', drivingCycleId: 'DC-D033-20261007-02', plate: '云A·H3188', vehicleId: 'V033', driverName: '何平', driverId: 'D033', taskId: 'Y20261007000033', route: '北城 → 研和', cargo: '煤炭', location: '研和停车区', triggeredAt: '2026-10-07 13:42:00', recoveredAt: '2026-10-07 18:25:00', sourceStatus: 'recovered', wasTriggered: true, finalLevel: '严重' },
+        { drivingCycleId: 'DC-D033-20261007-02', drivingStartedAt: '2026-10-07 13:42:00', continuousDrivingMinutes: 258, currentSpeed: 0, parkingStartedAt: '2026-10-07 18:00:00', continuousParkingMinutes: 25, driverBindingStartedAt: '2026-10-07 13:40:00', drivingCycleActive: false }, ['车辆连续停车25分钟', '达到有效休息条件', '连续驾驶周期结束'], [
+          { action: 'TRIGGERED', level: '一般', at: '2026-10-07 17:12:00', remark: '连续驾驶3小时30分钟' },
+          { action: 'LEVEL_UPGRADED', from: '一般', to: '严重', at: '2026-10-07 17:42:00', remark: '连续驾驶4小时' },
+          { action: 'RECOVERED', at: '2026-10-07 18:25:00', remark: '车辆连续停车25分钟，达到有效休息条件' }
+        ])
     ];
   }
 
-  function ruleByCode(rules, code) { return (rules || []).filter(function (item) { return item.code === code; })[0] || null; }
-  function metricNumber(signal, key) {
-    var metrics = signal.metrics || {};
-    return Number(metrics[key] == null ? signal.currentValue : metrics[key]);
+  function enabledLevels(rule) {
+    return (rule && rule.levels || []).filter(function (item) { return item.enabled !== false; });
   }
-  function matchesCondition(signal, rule) {
-    if (!rule || !rule.config) return false;
-    var threshold = Number(rule.config.threshold);
-    var metrics = signal.metrics || {};
+  function highestMatched(rule, matcher) {
+    var matched = enabledLevels(rule).filter(matcher).sort(function (a, b) { return levelRank(b.level) - levelRank(a.level); });
+    return matched[0] || null;
+  }
+  function evaluation(level, metrics, facts) { return { triggered: !!level, level: level ? level.level : null, levelConfig: clone(level), metrics: clone(metrics || {}), facts: clone(facts || []) }; }
+  function evaluateParking(currentSignal, rule) {
+    var m = currentSignal.metrics || {};
+    if (m.transportRelevant !== true || Number(m.speed) > 5) return evaluation(null, m, currentSignal.facts);
+    return evaluation(highestMatched(rule, function (item) { return Number(m.parkingMinutes) >= Number(item.threshold); }), m, currentSignal.facts);
+  }
+  function evaluateParkingArea(currentSignal, rule) {
+    var m = currentSignal.metrics || {};
+    if (m.insideBusinessArea !== true) return evaluation(null, m, currentSignal.facts);
+    return evaluation(highestMatched(rule, function (item) { return Number(m.areaDwellMinutes) >= Number(item.threshold); }), m, currentSignal.facts);
+  }
+  function evaluateSpeed(currentSignal, rule) {
+    var m = currentSignal.metrics || {};
+    return evaluation(highestMatched(rule, function (item) {
+      return Number(m.speed) >= Number(item.speedThreshold) && Number(m.overspeedDurationSeconds) >= Number(item.durationSeconds);
+    }), m, currentSignal.facts);
+  }
+  function evaluateWeighbill(currentSignal, rule) {
+    var m = currentSignal.metrics || {};
+    if (m.leftUnload !== true || m.weighbillUploaded !== false) return evaluation(null, m, currentSignal.facts);
+    return evaluation(highestMatched(rule, function (item) { return Number(m.waitingMinutes) >= Number(item.threshold); }), m, currentSignal.facts);
+  }
+  function evaluateSoc(currentSignal, rule) {
+    var m = currentSignal.metrics || {};
+    return evaluation(highestMatched(rule, function (item) { return Number(m.soc) <= Number(item.threshold); }), m, currentSignal.facts);
+  }
+  function evaluateFatigue(currentSignal, rule) {
+    var m = currentSignal.metrics || {};
+    var rest = Number(rule && rule.recoveryConfig && rule.recoveryConfig.restThresholdMinutes || 20);
+    if (m.driverChanged === true || m.drivingCycleActive === false || Number(m.continuousParkingMinutes || 0) >= rest) return evaluation(null, m, currentSignal.facts);
+    return evaluation(highestMatched(rule, function (item) { return Number(m.continuousDrivingMinutes) >= Number(item.thresholdMinutes); }), m, currentSignal.facts);
+  }
+  function evaluateSignal(currentSignal, rule) {
+    if (!rule) return evaluation(null, currentSignal.metrics, currentSignal.facts);
     switch (rule.code) {
-      case 'TRANSPORT_PARKING': return metrics.transportRelevant === true && Number(metrics.speed) === 0 && metricNumber(signal, 'parkingMinutes') >= threshold;
-      case 'PARKING_AREA': return metrics.insideBusinessArea === true && metricNumber(signal, 'areaDwellMinutes') >= threshold;
-      case 'VEHICLE_OVERSPEED': return metricNumber(signal, 'speed') >= threshold;
-      case 'UNLOAD_WEIGHBILL_MISSING': return metrics.leftUnload === true && metrics.weighbillUploaded === false && metricNumber(signal, 'waitingMinutes') >= threshold;
-      case 'VEHICLE_LOW_SOC': return metricNumber(signal, 'soc') <= threshold;
-      case 'DRIVER_FATIGUE': return metrics.drivingCycleActive === true && metricNumber(signal, 'continuousDrivingMinutes') >= threshold * 60;
-      default: return false;
+      case 'TRANSPORT_PARKING': return evaluateParking(currentSignal, rule);
+      case 'PARKING_AREA': return evaluateParkingArea(currentSignal, rule);
+      case 'VEHICLE_OVERSPEED': return evaluateSpeed(currentSignal, rule);
+      case 'UNLOAD_WEIGHBILL_MISSING': return evaluateWeighbill(currentSignal, rule);
+      case 'VEHICLE_LOW_SOC': return evaluateSoc(currentSignal, rule);
+      case 'DRIVER_FATIGUE': return evaluateFatigue(currentSignal, rule);
+      default: return evaluation(null, currentSignal.metrics, currentSignal.facts);
     }
   }
-  function isTriggered(signal, rule) { return !!(rule && rule.enabled && matchesCondition(signal, rule)); }
-  function eventKey(signal) {
-    if (signal.ruleCode === 'DRIVER_FATIGUE') return [signal.ruleCode, signal.driverId || signal.driverName, signal.drivingCycleId || (signal.metrics || {}).drivingStartedAt].join('|');
-    return [signal.ruleCode, signal.vehicleId || signal.plate, signal.taskId || 'NO_TASK'].join('|');
+
+  function eventKey(currentSignal) {
+    if (currentSignal.ruleCode === 'DRIVER_FATIGUE') return [currentSignal.ruleCode, currentSignal.driverId, currentSignal.drivingCycleId || (currentSignal.metrics || {}).drivingCycleId].join('|');
+    return [currentSignal.ruleCode, currentSignal.vehicleId || currentSignal.plate, currentSignal.taskId || 'NO_TASK'].join('|');
   }
-  function eventId(index) { return 'AL20260928' + String(index + 1).padStart(4, '0'); }
-  function logId(index) { return 'LOG20260928' + String(index + 1).padStart(4, '0'); }
   function ruleSnapshot(rule) {
+    return { ruleId: rule.id, ruleCode: rule.code, ruleName: rule.name, category: rule.category, levels: clone(rule.levels), recoveryConfig: clone(rule.recoveryConfig), capturedAt: nowText() };
+  }
+  function snapshotRule(snapshot, code) {
+    return { code: snapshot.ruleCode || code, levels: clone(snapshot.levels || []), recoveryConfig: clone(snapshot.recoveryConfig || {}) };
+  }
+  function valueText(currentSignal) {
+    var m = currentSignal.metrics || {};
+    if (currentSignal.displayValue) return currentSignal.displayValue;
+    if (currentSignal.ruleCode === 'TRANSPORT_PARKING') return '连续停车' + m.parkingMinutes + '分钟';
+    if (currentSignal.ruleCode === 'PARKING_AREA') return '区域停留' + m.areaDwellMinutes + '分钟';
+    if (currentSignal.ruleCode === 'VEHICLE_OVERSPEED') return m.speed + ' km/h · ' + m.overspeedDurationSeconds + '秒';
+    if (currentSignal.ruleCode === 'UNLOAD_WEIGHBILL_MISSING') return '未上传 · ' + m.waitingMinutes + '分钟';
+    if (currentSignal.ruleCode === 'VEHICLE_LOW_SOC') return 'SOC ' + m.soc + '%';
+    if (currentSignal.ruleCode === 'DRIVER_FATIGUE') return '连续驾驶' + m.continuousDrivingMinutes + '分钟';
+    return '—';
+  }
+  function eventFromSignal(currentSignal, rule, result, id) {
+    var handling = currentSignal.sourceId === 'live-stop';
+    var handled = currentSignal.sourceId === 'live-soc';
     return {
-      ruleId: rule.id, ruleCode: rule.code, ruleName: rule.name, category: rule.category, level: rule.level,
-      config: clone(rule.config), recoveryConfig: clone(rule.recoveryConfig),
-      threshold: Number(rule.config.threshold), unit: rule.config.unit, compare: rule.config.compare,
-      recovery: rule.recoveryConfig.description, capturedAt: nowText()
+      id: id, sourceId: currentSignal.sourceId, eventKey: eventKey(currentSignal), drivingCycleId: currentSignal.drivingCycleId || (currentSignal.metrics || {}).drivingCycleId || null,
+      ruleId: rule.id, ruleCode: rule.code, category: rule.category, type: rule.name,
+      initialLevel: currentSignal.history && currentSignal.history[0] && currentSignal.history[0].level || result.level,
+      level: currentSignal.finalLevel || result.level || '一般', projectId: PROJECT_ID, projectName: PROJECT_NAME,
+      vehicleId: currentSignal.vehicleId || 'FV-' + String(currentSignal.plate || '').replace(/[^A-Z0-9\u4e00-\u9fa5]/gi, ''), plate: currentSignal.plate,
+      driverId: currentSignal.driverId, driverName: currentSignal.driverName, taskId: currentSignal.taskId,
+      route: currentSignal.route, cargo: currentSignal.cargo, location: currentSignal.location,
+      triggeredAt: currentSignal.history && currentSignal.history[0] && currentSignal.history[0].at || currentSignal.triggeredAt || currentSignal.detectedAt || nowText(),
+      recoveredAt: currentSignal.recoveredAt || null, currentValueText: valueText(currentSignal),
+      eventStatus: currentSignal.sourceStatus === 'recovered' ? '已恢复' : '发生中',
+      handleStatus: handled ? '已处理' : handling ? '处理中' : '待处理',
+      acknowledgedAt: handling ? '2026-10-08 09:06:00' : handled ? '2026-10-08 10:10:00' : null,
+      acknowledgedBy: handling || handled ? OPERATOR : null,
+      handlerId: handled ? 'U001' : null, handlerName: handled ? OPERATOR : null,
+      handlingStartedAt: handled ? '2026-10-08 10:11:00' : null, handledAt: handled ? '2026-10-08 10:13:00' : null,
+      handlingType: handled ? '安排充电' : null, handlingResult: handled ? '已联系司机前往最近充电站，持续关注车辆电量。' : null,
+      ruleSnapshot: ruleSnapshot(rule), metrics: clone(result.metrics), facts: clone(result.facts), lastDetectedAt: nowText()
     };
   }
-  function eventFromSignal(signal, rule, index) {
-    var recovered = signal.sourceStatus === 'recovered';
-    var handled = signal.sourceId === 'vw-r1' || signal.sourceId === 'vw-r2';
-    var handling = signal.sourceId === 'vw-stop';
-    var activeHandled = signal.sourceId === 'vw-soc';
-    var handleStatus = handled || activeHandled ? '已处理' : handling ? '处理中' : '待处理';
-    return {
-      id: eventId(index), sourceId: signal.sourceId, eventKey: eventKey(signal), drivingCycleId: signal.drivingCycleId || null,
-      ruleId: rule.id, ruleCode: rule.code, category: rule.category, type: rule.name, level: rule.level,
-      projectId: PROJECT_ID, projectName: PROJECT_NAME,
-      vehicleId: signal.vehicleId || 'FV-' + signal.plate.replace(/[^A-Z0-9\u4e00-\u9fa5]/gi, ''), plate: signal.plate,
-      driverId: signal.driverId, driverName: signal.driverName, taskId: signal.taskId,
-      route: signal.route, cargo: signal.cargo, location: signal.location,
-      triggeredAt: signal.triggeredAt, recoveredAt: signal.recoveredAt || null,
-      currentValue: signal.currentValue, currentValueText: signal.displayValue,
-      thresholdValue: Number(rule.config.threshold), unit: rule.config.unit,
-      eventStatus: recovered ? '已恢复' : '发生中', handleStatus: handleStatus,
-      acknowledgedAt: handling ? '2026-09-28 10:02:00' : (handled || activeHandled ? '2026-09-28 09:12:00' : null),
-      acknowledgedBy: handling || handled || activeHandled ? OPERATOR : null,
-      handlerId: handled || activeHandled ? 'U001' : null, handlerName: handled || activeHandled ? OPERATOR : null,
-      handlingStartedAt: handled || activeHandled ? '2026-09-28 09:13:00' : null,
-      handledAt: handled || activeHandled ? (recovered ? signal.recoveredAt : '2026-09-28 14:01:00') : null,
-      handlingType: handled || activeHandled ? (rule.code === 'VEHICLE_LOW_SOC' ? '安排充电' : '联系司机') : null,
-      handlingResult: handled || activeHandled ? (rule.code === 'VEHICLE_LOW_SOC' ? '已联系司机前往最近充电站，持续关注车辆电量。' : '已联系司机核实，车辆恢复后继续运输。') : null,
-      ruleSnapshot: ruleSnapshot(rule), metrics: clone(signal.metrics || {}), facts: clone(signal.facts || []), lastDetectedAt: nowText()
-    };
-  }
-  function updateEventFromSignal(event, currentSignal) {
-    event.sourceId = currentSignal.sourceId;
-    event.currentValue = currentSignal.currentValue;
-    event.currentValueText = currentSignal.displayValue;
-    event.metrics = clone(currentSignal.metrics || {});
-    event.facts = clone(currentSignal.facts || []);
-    event.location = currentSignal.location;
-    event.lastDetectedAt = nowText();
+
+  function eventId(index) { return 'AL20261008' + String(index + 1).padStart(4, '0'); }
+  function logId(index) { return 'LOG20261008' + String(index + 1).padStart(4, '0'); }
+  function addSeedLogs(logs, event, history) {
+    (history || []).forEach(function (entry) {
+      logs.push({ id: logId(logs.length), alertId: event.id, action: entry.action, operator: entry.operator || '系统', operatedAt: entry.at, remark: entry.remark || '', fromLevel: entry.from || null, toLevel: entry.to || entry.level || null });
+    });
+    if (!history || !history.length) logs.push({ id: logId(logs.length), alertId: event.id, action: 'TRIGGERED', operator: '系统', operatedAt: event.triggeredAt, remark: '首次达到' + event.level + '等级条件', toLevel: event.level });
+    if (event.acknowledgedAt) logs.push({ id: logId(logs.length), alertId: event.id, action: 'ACKNOWLEDGED', operator: event.acknowledgedBy, operatedAt: event.acknowledgedAt, remark: '已知悉告警' });
+    if (event.handlingStartedAt) logs.push({ id: logId(logs.length), alertId: event.id, action: 'HANDLING_STARTED', operator: event.handlerName, operatedAt: event.handlingStartedAt, remark: event.handlingType });
+    if (event.handledAt) logs.push({ id: logId(logs.length), alertId: event.id, action: 'HANDLED', operator: event.handlerName, operatedAt: event.handledAt, remark: event.handlingResult });
   }
   function seedState() {
     var rules = seedRules();
-    migrateLegacyRules(rules);
+    migrateVeryOldRules(rules);
     var events = [];
+    var logs = [];
     monitorSignals().forEach(function (currentSignal) {
       var rule = ruleByCode(rules, currentSignal.ruleCode);
-      if (!rule || (!currentSignal.wasTriggered && !isTriggered(currentSignal, rule))) return;
-      var key = eventKey(currentSignal);
-      var existing = events.filter(function (event) { return event.eventKey === key && event.eventStatus === '发生中'; })[0];
-      if (existing) {
-        updateEventFromSignal(existing, currentSignal);
-        if (currentSignal.sourceStatus === 'recovered') {
-          existing.eventStatus = '已恢复';
-          existing.recoveredAt = currentSignal.recoveredAt || nowText();
-        }
-        return;
-      }
-      events.push(eventFromSignal(currentSignal, rule, events.length));
+      var result = evaluateSignal(currentSignal, rule);
+      if (!currentSignal.wasTriggered && (!rule.enabled || !result.triggered)) return;
+      var event = eventFromSignal(currentSignal, rule, result, eventId(events.length));
+      events.push(event);
+      addSeedLogs(logs, event, currentSignal.history);
     });
-    var logs = [];
-    events.forEach(function (event) {
-      logs.push({ id: logId(logs.length), alertId: event.id, action: 'TRIGGERED', operator: '系统', operatedAt: event.triggeredAt, remark: '达到「' + event.ruleSnapshot.ruleName + '」触发条件' });
-      if (event.acknowledgedAt) logs.push({ id: logId(logs.length), alertId: event.id, action: 'ACKNOWLEDGED', operator: event.acknowledgedBy, operatedAt: event.acknowledgedAt, remark: '已知悉告警' });
-      if (event.handlingStartedAt) logs.push({ id: logId(logs.length), alertId: event.id, action: 'HANDLING_STARTED', operator: event.handlerName, operatedAt: event.handlingStartedAt, remark: event.handlingType || '开始处理' });
-      if (event.recoveredAt) logs.push({ id: logId(logs.length), alertId: event.id, action: 'RECOVERED', operator: '系统', operatedAt: event.recoveredAt, remark: event.ruleSnapshot.recovery });
-      if (event.handledAt) logs.push({ id: logId(logs.length), alertId: event.id, action: 'HANDLED', operator: event.handlerName, operatedAt: event.handledAt, remark: event.handlingResult || '处理完成' });
-    });
-    return { version: 1, rules: rules, events: events, logs: logs };
+    return { version: 2, rules: rules, events: events, logs: logs };
   }
-  function migrateLegacyRules(rules) {
+
+  function migrateVeryOldRules(rules) {
     var map = { stop: 'TRANSPORT_PARKING', site: 'PARKING_AREA', speed: 'VEHICLE_OVERSPEED', weigh: 'UNLOAD_WEIGHBILL_MISSING', soc: 'VEHICLE_LOW_SOC' };
     try {
       var legacy = JSON.parse(localStorage.getItem(LEGACY_RULE_KEY) || 'null');
       (legacy && legacy.rules || []).forEach(function (oldRule) {
         var next = ruleByCode(rules, map[oldRule.id]);
         if (!next) return;
-        if (isFinite(Number(oldRule.threshold))) next.config.threshold = Number(oldRule.threshold);
         next.enabled = oldRule.enabled !== false;
-        next.level = oldRule.level === '高' ? '紧急' : '严重';
         next.updatedBy = oldRule.modifier || next.updatedBy;
         next.updatedAt = oldRule.modifyTime || next.updatedAt;
       });
     } catch (error) {}
   }
-  function normalizeRule(savedRule, seededRule) {
-    var normalized = Object.assign({}, clone(seededRule), clone(savedRule || {}));
-    normalized.config = Object.assign({}, clone(seededRule.config), clone(savedRule && savedRule.config || {}));
-    normalized.recoveryConfig = Object.assign({}, clone(seededRule.recoveryConfig), clone(savedRule && savedRule.recoveryConfig || {}));
+  function thresholdField(code) { return code === 'VEHICLE_OVERSPEED' ? 'speedThreshold' : code === 'DRIVER_FATIGUE' ? 'thresholdMinutes' : 'threshold'; }
+  function orderValid(rule) {
+    var values = LEVELS.map(function (name) { return Number((levelByName(rule, name) || {})[thresholdField(rule.code)]); });
+    if (values.some(function (value) { return !isFinite(value); })) return false;
+    return rule.code === 'VEHICLE_LOW_SOC' ? values[0] > values[1] && values[1] > values[2] : values[0] < values[1] && values[1] < values[2];
+  }
+  function normalizeRule(savedRule, template) {
+    if (!savedRule) return clone(template);
+    var normalized = Object.assign({}, clone(template), clone(savedRule));
+    /* 规则元数据由当前版本统一定义，迁移时只保留用户可配置项和修改记录。 */
+    normalized.id = template.id;
+    normalized.code = template.code;
+    normalized.name = template.name;
+    normalized.category = template.category;
+    normalized.description = template.description;
+    normalized.levels = clone(template.levels);
+    if (Array.isArray(savedRule.levels)) {
+      normalized.levels = template.levels.map(function (defaultLevel) {
+        return Object.assign({}, clone(defaultLevel), clone(levelByName(savedRule, defaultLevel.level) || {}), { level: defaultLevel.level });
+      });
+    } else if (savedRule.config && isFinite(Number(savedRule.config.threshold))) {
+      var targetName = LEVELS.indexOf(savedRule.level) >= 0 ? savedRule.level : '严重';
+      var target = levelByName(normalized, targetName);
+      var field = thresholdField(normalized.code);
+      var oldValue = Number(savedRule.config.threshold);
+      if (normalized.code === 'DRIVER_FATIGUE' && savedRule.config.unit === '小时') oldValue *= 60;
+      target[field] = oldValue;
+      if (!orderValid(normalized)) normalized.levels = clone(template.levels);
+    }
+    normalized.recoveryConfig = Object.assign({}, clone(template.recoveryConfig), clone(savedRule.recoveryConfig || {}), { description: template.recoveryConfig.description });
+    normalized.enabled = savedRule.enabled !== false;
+    delete normalized.level;
+    delete normalized.config;
     delete normalized.repeatIntervalMinutes;
     return normalized;
   }
-  function normalizeEvent(savedEvent) {
+  function normalizeSnapshot(snapshot, event, rules) {
+    var snap = snapshot && typeof snapshot === 'object' ? clone(snapshot) : {};
+    var template = ruleByCode(rules, snap.ruleCode || event.ruleCode) || ruleByCode(seedRules(), event.ruleCode);
+    if (!Array.isArray(snap.levels) && template) snap.levels = clone(template.levels);
+    if (!snap.recoveryConfig && template) snap.recoveryConfig = clone(template.recoveryConfig);
+    snap.ruleId = snap.ruleId || event.ruleId || (template && template.id);
+    snap.ruleCode = snap.ruleCode || event.ruleCode;
+    snap.ruleName = snap.ruleName || event.type || (template && template.name);
+    snap.category = snap.category || event.category || (template && template.category);
+    snap.capturedAt = snap.capturedAt || event.triggeredAt || nowText();
+    return snap;
+  }
+  function normalizeEvent(savedEvent, rules) {
     var event = Object.assign({}, savedEvent || {});
     event.metrics = event.metrics && typeof event.metrics === 'object' ? event.metrics : {};
     event.facts = Array.isArray(event.facts) ? event.facts : [];
-    event.ruleSnapshot = event.ruleSnapshot && typeof event.ruleSnapshot === 'object' ? event.ruleSnapshot : {};
+    event.ruleSnapshot = normalizeSnapshot(event.ruleSnapshot, event, rules);
+    event.level = LEVELS.indexOf(event.level) >= 0 ? event.level : (LEVELS.indexOf(event.ruleSnapshot.level) >= 0 ? event.ruleSnapshot.level : '一般');
+    event.initialLevel = LEVELS.indexOf(event.initialLevel) >= 0 ? event.initialLevel : event.level;
     return event;
+  }
+  function mergeSeedHistory(events, logs, seeded) {
+    var knownSources = {};
+    var usedEventIds = {};
+    var usedLogIds = {};
+    events.forEach(function (event) { if (event.sourceId) knownSources[event.sourceId] = true; usedEventIds[event.id] = true; });
+    logs.forEach(function (log) { usedLogIds[log.id] = true; });
+    seeded.events.filter(function (event) { return String(event.sourceId || '').indexOf('history-') === 0; }).forEach(function (seedEvent) {
+      if (knownSources[seedEvent.sourceId]) return;
+      var event = clone(seedEvent);
+      var seedId = event.id;
+      if (usedEventIds[event.id]) event.id = seedId + '-DEMO';
+      while (usedEventIds[event.id]) event.id += '-1';
+      usedEventIds[event.id] = true;
+      knownSources[event.sourceId] = true;
+      events.push(event);
+      seeded.logs.filter(function (log) { return log.alertId === seedId; }).forEach(function (seedLog) {
+        var log = clone(seedLog);
+        log.alertId = event.id;
+        if (usedLogIds[log.id]) log.id = log.id + '-DEMO';
+        while (usedLogIds[log.id]) log.id += '-1';
+        usedLogIds[log.id] = true;
+        logs.push(log);
+      });
+    });
   }
   function normalize(saved) {
     var seeded = seedState();
-    if (!saved || saved.version !== 1) return seeded;
+    if (!saved || (saved.version !== 1 && saved.version !== 2)) return seeded;
     var savedRules = Array.isArray(saved.rules) ? saved.rules : [];
+    var rules = seeded.rules.map(function (template) { return normalizeRule(ruleByCode(savedRules, template.code), template); });
+    var events = Array.isArray(saved.events) ? saved.events.map(function (event) { return normalizeEvent(event, rules); }) : clone(seeded.events);
+    var logs = Array.isArray(saved.logs) ? clone(saved.logs) : clone(seeded.logs);
+    mergeSeedHistory(events, logs, seeded);
     return {
-      version: 1,
-      rules: seeded.rules.map(function (seededRule) { return normalizeRule(ruleByCode(savedRules, seededRule.code), seededRule); }),
-      events: Array.isArray(saved.events) ? saved.events.map(normalizeEvent) : seeded.events,
-      logs: Array.isArray(saved.logs) ? saved.logs : seeded.logs
+      version: 2,
+      rules: rules,
+      events: events,
+      logs: logs
     };
   }
   function load() {
@@ -263,8 +362,9 @@
     var max = state.events.reduce(function (current, event) { return Math.max(current, Number(String(event.id || '').replace(/\D/g, '').slice(-4)) || 0); }, 0);
     return 'AL' + nowText().slice(0, 10).replace(/-/g, '') + String(max + 1).padStart(4, '0');
   }
-  function addLog(alertId, action, operator, remark, operatedAt) {
-    state.logs.push({ id: 'LOG-' + Date.now() + '-' + state.logs.length, alertId: alertId, action: action, operator: operator || OPERATOR, operatedAt: operatedAt || nowText(), remark: remark || '' });
+  function addLog(alertId, action, remark, options) {
+    options = options || {};
+    state.logs.push({ id: 'LOG-' + Date.now() + '-' + state.logs.length, alertId: alertId, action: action, operator: options.operator || '系统', operatedAt: options.operatedAt || nowText(), remark: remark || '', fromLevel: options.fromLevel || null, toLevel: options.toLevel || null });
   }
   function activeEventFor(currentSignal) {
     var key = eventKey(currentSignal);
@@ -275,49 +375,87 @@
       return event.plate === currentSignal.plate && event.taskId === currentSignal.taskId;
     })[0] || null;
   }
-  function refreshDetection() {
-    var changed = false;
-    monitorSignals().forEach(function (currentSignal) {
-      var rule = ruleByCode(state.rules, currentSignal.ruleCode);
-      var active = activeEventFor(currentSignal);
-      if (active) {
-        var snapshot = active.ruleSnapshot || {};
-        var snapshotRule = { code: active.ruleCode, config: clone(snapshot.config || { threshold: snapshot.threshold, unit: snapshot.unit, compare: snapshot.compare }) };
-        if (currentSignal.sourceStatus === 'recovered' || !matchesCondition(currentSignal, snapshotRule)) {
-          active.eventStatus = '已恢复';
-          active.recoveredAt = currentSignal.recoveredAt || nowText();
-          updateEventFromSignal(active, currentSignal);
-          addLog(active.id, 'RECOVERED', '系统', (snapshot.recoveryConfig || {}).description || snapshot.recovery || '触发条件已解除', active.recoveredAt);
-          changed = true;
-        } else updateEventFromSignal(active, currentSignal);
-        return;
+  function recoveryRemark(currentSignal, rule) {
+    var m = currentSignal.metrics || {};
+    if (currentSignal.ruleCode === 'DRIVER_FATIGUE') {
+      if (m.driverChanged) return '车辆驾驶员已发生变更，本次连续驾驶周期结束';
+      if (Number(m.continuousParkingMinutes || 0) >= Number(rule.recoveryConfig.restThresholdMinutes || 20)) return '车辆连续停车' + m.continuousParkingMinutes + '分钟，达到有效休息条件';
+    }
+    return (rule.recoveryConfig || {}).description || '所有启用等级均不满足';
+  }
+  function updateEvidence(event, currentSignal, result) {
+    event.sourceId = currentSignal.sourceId || event.sourceId;
+    event.metrics = clone(result.metrics);
+    event.facts = clone(result.facts);
+    event.currentValueText = valueText(currentSignal);
+    event.location = currentSignal.location || event.location;
+    event.lastDetectedAt = nowText();
+  }
+  function processSignal(currentSignal, shouldPersist) {
+    var currentRule = ruleByCode(state.rules, currentSignal.ruleCode);
+    var cycleChanged = false;
+    if (currentSignal.ruleCode === 'DRIVER_FATIGUE' && currentSignal.driverId && currentSignal.drivingCycleId) {
+      state.events.forEach(function (event) {
+        if (event.ruleCode !== 'DRIVER_FATIGUE' || event.eventStatus !== '发生中' || event.driverId !== currentSignal.driverId) return;
+        if (!event.drivingCycleId || event.drivingCycleId === currentSignal.drivingCycleId) return;
+        event.eventStatus = '已恢复';
+        event.recoveredAt = currentSignal.detectedAt || nowText();
+        addLog(event.id, 'RECOVERED', '检测到新的连续驾驶周期，原驾驶周期已结束', { operatedAt: event.recoveredAt });
+        cycleChanged = true;
+      });
+    }
+    var active = activeEventFor(currentSignal);
+    var effectiveRule = active ? snapshotRule(active.ruleSnapshot, active.ruleCode) : currentRule;
+    var result = evaluateSignal(currentSignal, effectiveRule);
+    var changed = cycleChanged;
+    if (active) {
+      updateEvidence(active, currentSignal, result);
+      if (currentSignal.sourceStatus === 'recovered' || !result.triggered) {
+        active.eventStatus = '已恢复';
+        active.recoveredAt = currentSignal.recoveredAt || currentSignal.detectedAt || nowText();
+        addLog(active.id, 'RECOVERED', recoveryRemark(currentSignal, effectiveRule), { operatedAt: active.recoveredAt });
+        changed = true;
+      } else if (active.level !== result.level) {
+        var action = levelRank(result.level) > levelRank(active.level) ? 'LEVEL_UPGRADED' : 'LEVEL_DOWNGRADED';
+        var from = active.level;
+        active.level = result.level;
+        addLog(active.id, action, from + ' → ' + result.level + '；' + valueText(currentSignal), { fromLevel: from, toLevel: result.level, operatedAt: currentSignal.detectedAt });
+        changed = true;
       }
-      if (currentSignal.sourceStatus !== 'active' || !isTriggered(currentSignal, rule)) return;
-      var event = eventFromSignal(currentSignal, rule, 0);
-      event.id = nextEventId();
-      event.handleStatus = '待处理';
-      event.acknowledgedAt = null;
-      event.acknowledgedBy = null;
-      event.handlerId = null;
-      event.handlerName = null;
-      event.handlingStartedAt = null;
-      event.handledAt = null;
-      event.handlingType = null;
-      event.handlingResult = null;
-      state.events.unshift(event);
-      addLog(event.id, 'TRIGGERED', '系统', '达到「' + rule.name + '」触发条件', event.triggeredAt);
+    } else if (currentRule && currentRule.enabled && currentSignal.sourceStatus !== 'recovered' && result.triggered) {
+      active = eventFromSignal(currentSignal, currentRule, result, nextEventId());
+      active.handleStatus = '待处理';
+      active.acknowledgedAt = null;
+      active.acknowledgedBy = null;
+      active.handlerId = null;
+      active.handlerName = null;
+      active.handlingStartedAt = null;
+      active.handledAt = null;
+      active.handlingType = null;
+      active.handlingResult = null;
+      state.events.unshift(active);
+      addLog(active.id, 'TRIGGERED', '首次达到' + result.level + '等级条件；' + valueText(currentSignal), { toLevel: result.level, operatedAt: currentSignal.detectedAt || active.triggeredAt });
       changed = true;
-    });
-    if (changed) persist();
+    }
+    if (changed && shouldPersist !== false) persist();
+    return clone(active);
+  }
+  function refreshDetection() {
+    var before = state.logs.length + ':' + state.events.length;
+    monitorSignals().filter(function (item) { return !item.wasTriggered; }).forEach(function (item) { processSignal(item, false); });
+    var after = state.logs.length + ':' + state.events.length;
+    if (before !== after) persist();
   }
   function updateRule(id, patch) {
     var rule = state.rules.filter(function (item) { return item.id === id; })[0];
     if (!rule) return null;
     if (patch.enabled != null) rule.enabled = !!patch.enabled;
-    if (patch.level && ['一般', '严重', '紧急'].indexOf(patch.level) >= 0) rule.level = patch.level;
     if (patch.scopeType) rule.scopeType = patch.scopeType;
     rule.projectIds = patch.scopeType === '指定项目' ? [PROJECT_ID] : [];
-    if (isFinite(Number(patch.threshold))) rule.config.threshold = Number(patch.threshold);
+    if (Array.isArray(patch.levels)) rule.levels = clone(patch.levels);
+    if (patch.recoveryConfig) rule.recoveryConfig = Object.assign({}, rule.recoveryConfig, clone(patch.recoveryConfig));
+    delete rule.level;
+    delete rule.config;
     delete rule.repeatIntervalMinutes;
     rule.updatedBy = OPERATOR;
     rule.updatedAt = nowText();
@@ -331,7 +469,7 @@
     event.handleStatus = '处理中';
     event.acknowledgedAt = nowText();
     event.acknowledgedBy = OPERATOR;
-    addLog(event.id, 'ACKNOWLEDGED', OPERATOR, '已知悉告警');
+    addLog(event.id, 'ACKNOWLEDGED', '已知悉告警', { operator: OPERATOR });
     persist();
     return clone(event);
   }
@@ -342,11 +480,11 @@
     if (!event.acknowledgedAt) {
       event.acknowledgedAt = time;
       event.acknowledgedBy = OPERATOR;
-      addLog(event.id, 'ACKNOWLEDGED', OPERATOR, '处理时自动知悉告警', time);
+      addLog(event.id, 'ACKNOWLEDGED', '处理时自动知悉告警', { operator: OPERATOR, operatedAt: time });
     }
     if (!event.handlingStartedAt) {
       event.handlingStartedAt = time;
-      addLog(event.id, 'HANDLING_STARTED', OPERATOR, type, time);
+      addLog(event.id, 'HANDLING_STARTED', type, { operator: OPERATOR, operatedAt: time });
     }
     event.handleStatus = '已处理';
     event.handlerId = 'U001';
@@ -354,7 +492,7 @@
     event.handledAt = time;
     event.handlingType = type;
     event.handlingResult = result;
-    addLog(event.id, 'HANDLED', OPERATOR, result, time);
+    addLog(event.id, 'HANDLED', result, { operator: OPERATOR, operatedAt: time });
     persist();
     return clone(event);
   }
@@ -363,6 +501,7 @@
   }
 
   state = load();
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (error) {}
   refreshDetection();
 
   window.AlertCenterStore = {
@@ -374,6 +513,7 @@
     getLogs: function (id) { return clone(logsFor(id)); },
     acknowledge: acknowledge,
     handle: handle,
+    detectSignal: function (currentSignal) { return processSignal(clone(currentSignal), true); },
     refresh: function () { refreshDetection(); return clone(state.events); },
     operator: OPERATOR,
     levelRank: levelRank
