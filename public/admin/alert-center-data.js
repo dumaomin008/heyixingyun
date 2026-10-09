@@ -30,8 +30,43 @@
   function pad(value) { return String(value).padStart(2, '0'); }
   function nowText() {
     var date = new Date();
+    return formatStamp(date.getTime());
+  }
+  function formatStamp(ms) {
+    var date = new Date(ms);
     return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate()) + ' '
       + pad(date.getHours()) + ':' + pad(date.getMinutes()) + ':' + pad(date.getSeconds());
+  }
+  function parseStamp(text) {
+    var t = new Date(String(text || '').replace(/-/g, '/')).getTime();
+    return isFinite(t) ? t : NaN;
+  }
+  function shiftStamp(text, minutes) {
+    var t = parseStamp(text);
+    if (!isFinite(t)) return text;
+    return formatStamp(t + Number(minutes) * 60000);
+  }
+  function minutesBetween(start, end) {
+    var a = parseStamp(start);
+    var b = parseStamp(end);
+    if (!isFinite(a) || !isFinite(b)) return null;
+    return Math.max(0, Math.round((b - a) / 60000));
+  }
+  function evaluationTime(currentSignal) {
+    if (typeof currentSignal === 'string') return currentSignal;
+    if (!currentSignal) return nowText();
+    return currentSignal.evaluatedAt || currentSignal.currentTime || nowText();
+  }
+  function clockHm(stamp) {
+    var hm = String(stamp || '').slice(11, 16);
+    return /^\d{2}:\d{2}$/.test(hm) ? hm : '';
+  }
+  function isExecutingBoundTask(metrics, currentSignal) {
+    var taskId = (currentSignal && currentSignal.taskId) || (metrics && metrics.taskId);
+    return !!(metrics && metrics.taskStatus === '执行中' && metrics.taskBound === true && taskId);
+  }
+  function isTaskEnded(metrics) {
+    return !!(metrics && (metrics.taskEnded === true || metrics.taskStatus === '已结束' || metrics.taskStatus === '已完成'));
   }
   function levelRank(level) { return level === '紧急' ? 3 : level === '严重' ? 2 : level === '一般' ? 1 : 0; }
   function ruleByCode(rules, code) { return (rules || []).filter(function (item) { return item.code === code; })[0] || null; }
@@ -56,7 +91,7 @@
   }
   function inMonitorPeriod(rule, currentSignal) {
     if (!rule || rule.monitorPeriod !== '自定义') return true;
-    var stamp = currentSignal.detectedAt || currentSignal.triggeredAt || nowText();
+    var stamp = evaluationTime(currentSignal);
     var hm = String(stamp).slice(11, 16);
     var start = rule.monitorStart || '00:00';
     var end = rule.monitorEnd || '23:59';
@@ -144,6 +179,20 @@
       }
     ];
   }
+  function parkingDraftTemplate() {
+    var template = clone(ruleByCode(seedRules(), 'TRANSPORT_PARKING'));
+    template.id = '__parking_draft';
+    template.isDraft = true;
+    template.name = '停车超时预警';
+    template.enabled = true;
+    template.scopeType = '指定项目';
+    template.projectIds = [];
+    template.projectNames = [];
+    template.vehiclePlates = [];
+    template.updatedBy = '';
+    template.updatedAt = '';
+    return template;
+  }
 
   function signal(base, metrics, facts, history) {
     base.metrics = metrics || {};
@@ -225,6 +274,13 @@
     }
     item.metrics = item.metrics || {};
     item.metrics.mockSource = 'frontend-demo';
+    if (!item.evaluatedAt) {
+      if (item.recoveredAt) item.evaluatedAt = item.recoveredAt;
+      else if (item.metrics.parkingStartedAt && item.metrics.parkingMinutes != null) item.evaluatedAt = shiftStamp(item.metrics.parkingStartedAt, item.metrics.parkingMinutes);
+      else item.evaluatedAt = item.detectedAt || nowText();
+    }
+    item.metrics.evaluatedAt = item.evaluatedAt;
+    item.metrics.staticStartTime = item.metrics.staticStartTime || item.metrics.parkingStartedAt || null;
     return item;
   }
 
@@ -235,17 +291,22 @@
     var matched = enabledLevels(rule).filter(matcher).sort(function (a, b) { return levelRank(b.level) - levelRank(a.level); });
     return matched[0] || null;
   }
-  function evaluation(level, metrics, facts) { return { triggered: !!level, level: level ? level.level : null, levelConfig: clone(level), metrics: clone(metrics || {}), facts: clone(facts || []) }; }
-  function parkingFacts(currentSignal, rule) {
-    var m = currentSignal.metrics || {};
+  function evaluation(level, metrics, facts, extra) {
+    extra = extra || {};
+    return { triggered: !!level, recovered: extra.recovered === true, level: level ? level.level : null, levelConfig: clone(level), metrics: clone(metrics || {}), facts: clone(facts || []) };
+  }
+  function parkingFacts(currentSignal, rule, metrics) {
+    var m = metrics || currentSignal.metrics || {};
     var detect = (rule && rule.detectConfig) || {};
     var still = Number(detect.stillSpeedKph || 3);
     var excluded = m.loadingScene === true || m.unloadingScene === true || m.charging === true;
     var facts = [
       '车辆正在执行任务 ' + (currentSignal.taskId || '—'),
       '当前处于' + (m.taskNode || '运输途中'),
+      m.taskStatus === '执行中' ? '任务单状态为执行中' : '任务单状态不是执行中',
+      m.taskBound === true ? '车辆已绑定当前任务' : '车辆未绑定当前任务',
       excluded ? '命中装货、卸货或充电排除场景' : '未处于装货、卸货或充电场景',
-      (m.parkingStartedAt ? String(m.parkingStartedAt).slice(11, 16) : '—') + ' 开始持续静止',
+      (m.staticStartTime || m.parkingStartedAt ? String(m.staticStartTime || m.parkingStartedAt).slice(11, 16) : '—') + ' 开始持续静止',
       '当前已连续异常停车' + (m.parkingMinutes == null ? '—' : m.parkingMinutes) + '分钟',
       '当前车速：' + (m.speed == null ? '—' : m.speed) + ' km/h（静止阈值 ≤' + still + ' km/h）'
     ];
@@ -253,27 +314,91 @@
     if (matched) facts.push('已超过“' + matched.level + '”告警阈值' + matched.threshold + '分钟');
     return facts;
   }
-  function evaluateParking(currentSignal, rule) {
-    var m = currentSignal.metrics || {};
-    var facts = parkingFacts(currentSignal, rule);
+  function resolveParkingCycle(currentSignal, rule, priorMetrics) {
+    var input = Object.assign({}, currentSignal.metrics || {});
+    var evalAt = evaluationTime(currentSignal);
+    input.evaluatedAt = evalAt;
+    var detect = (rule && rule.detectConfig) || defaultParkingDetect();
+    var rec = (rule && rule.recoveryConfig) || defaultParkingRecovery();
+    var stillSpeed = Number(detect.stillSpeedKph || 3);
+    var recoverSpeed = Number(rec.recoverSpeedKph || 5);
+    var recoverNeed = Number(rec.recoverDurationMinutes || 3);
+    var prior = priorMetrics || {};
+    var speed = Number(input.speed);
+    var executing = input.taskStatus === '执行中';
+    var bound = input.taskBound === true && !!(currentSignal.taskId || input.taskId);
+    var excluded = (detect.excludeLoading !== false && input.loadingScene === true)
+      || (detect.excludeUnloading !== false && input.unloadingScene === true)
+      || (detect.excludeCharging !== false && input.charging === true);
+    var inPeriod = inMonitorPeriod(rule, currentSignal);
+    var taskEnded = input.taskEnded === true || input.taskStatus === '已结束' || input.taskStatus === '已完成';
+    var staticStartTime = prior.staticStartTime || prior.parkingStartedAt || null;
+    var recoverCandidateStart = prior.recoverCandidateStart || null;
+    var recovered = false;
+    var canMonitor = executing && bound && inPeriod && !excluded;
+    if (staticStartTime && rec.endOnTaskComplete !== false && (taskEnded || !executing || !bound)) recovered = true;
+    if (!recovered && canMonitor && isFinite(speed) && speed <= stillSpeed) {
+      if (!staticStartTime) staticStartTime = input.staticStartTime || input.parkingStartedAt || evalAt;
+      recoverCandidateStart = null;
+    } else if (!recovered && staticStartTime && isFinite(speed) && speed >= recoverSpeed) {
+      if (!recoverCandidateStart) {
+        recoverCandidateStart = prior.recoverCandidateStart || input.recoverCandidateStart
+          || (input.recoverHoldMinutes != null ? shiftStamp(evalAt, -Number(input.recoverHoldMinutes)) : evalAt);
+      }
+      var hold = minutesBetween(recoverCandidateStart, evalAt);
+      if (hold != null && hold >= recoverNeed) recovered = true;
+    } else if (!recovered && staticStartTime && isFinite(speed) && speed > stillSpeed) {
+      recoverCandidateStart = null;
+    } else if (!canMonitor && !staticStartTime) {
+      recoverCandidateStart = null;
+    }
+    var parkingMinutes = staticStartTime ? minutesBetween(staticStartTime, evalAt) : 0;
+    if (parkingMinutes == null) {
+      parkingMinutes = Number(input.parkingMinutes || 0);
+      input.durationSource = 'input-fallback';
+    } else {
+      input.durationSource = 'cycle';
+    }
+    input.staticStartTime = staticStartTime;
+    input.parkingStartedAt = staticStartTime;
+    input.parkingMinutes = parkingMinutes;
+    input.recoverCandidateStart = recoverCandidateStart;
+    input.recoverHoldMinutes = recoverCandidateStart ? (minutesBetween(recoverCandidateStart, evalAt) || 0) : 0;
+    input.cycleClosed = recovered;
+    input.evaluatedAt = evalAt;
+    return { metrics: input, recovered: recovered, canMonitor: canMonitor };
+  }
+  function parkingCycleKey(currentSignal) {
+    return [currentSignal.vehicleId || currentSignal.plate, currentSignal.taskId || 'NO_TASK'].join('|');
+  }
+  function loadParkingCycle(currentSignal, active) {
+    if (active && active.metrics && active.metrics.staticStartTime) return active.metrics;
+    return (state.parkingCycles || {})[parkingCycleKey(currentSignal)] || null;
+  }
+  function saveParkingCycle(currentSignal, metrics, recovered) {
+    state.parkingCycles = state.parkingCycles || {};
+    var key = parkingCycleKey(currentSignal);
+    if (recovered || !metrics || !metrics.staticStartTime) {
+      delete state.parkingCycles[key];
+      return;
+    }
+    state.parkingCycles[key] = {
+      staticStartTime: metrics.staticStartTime,
+      parkingStartedAt: metrics.staticStartTime,
+      recoverCandidateStart: metrics.recoverCandidateStart || null
+    };
+  }
+  function evaluateParking(currentSignal, rule, priorCycle) {
+    var resolved = resolveParkingCycle(currentSignal, rule, priorCycle);
+    var m = resolved.metrics;
+    var facts = parkingFacts(currentSignal, rule, m);
     if (!rule || rule.enabled === false) return evaluation(null, m, facts);
-    if (!inMonitorPeriod(rule, currentSignal)) return evaluation(null, m, facts);
-    var executing = m.taskStatus === '执行中' || m.transportRelevant === true;
-    var bound = m.taskBound !== false && !!(currentSignal.taskId || m.taskId);
-    if (!executing || !bound) return evaluation(null, m, facts);
-    var detect = rule.detectConfig || {};
-    if (detect.excludeLoading !== false && m.loadingScene === true) return evaluation(null, m, facts);
-    if (detect.excludeUnloading !== false && m.unloadingScene === true) return evaluation(null, m, facts);
-    if (detect.excludeCharging !== false && m.charging === true) return evaluation(null, m, facts);
+    if (resolved.recovered) return evaluation(null, m, facts, { recovered: true });
+    if (!resolved.canMonitor) return evaluation(null, m, facts);
+    var detect = rule.detectConfig || defaultParkingDetect();
     if (Number(m.speed) > Number(detect.stillSpeedKph || 3)) return evaluation(null, m, facts);
     if (Number(m.parkingMinutes) < Number(detect.minStillMinutes || 5)) return evaluation(null, m, facts);
     return evaluation(highestMatched(rule, function (item) { return Number(m.parkingMinutes) >= Number(item.threshold); }), m, facts);
-  }
-  function parkingShouldRecover(currentSignal, rule) {
-    var m = currentSignal.metrics || {};
-    var rec = (rule && rule.recoveryConfig) || {};
-    if (rec.endOnTaskComplete !== false && (m.taskEnded === true || m.taskStatus === '已结束' || m.taskStatus === '已完成')) return true;
-    return Number(m.speed) >= Number(rec.recoverSpeedKph || 5) && Number(m.recoverHoldMinutes || 0) >= Number(rec.recoverDurationMinutes || 3);
   }
   function evaluateParkingArea(currentSignal, rule) {
     var m = currentSignal.metrics || {};
@@ -301,10 +426,10 @@
     if (m.driverChanged === true || m.drivingCycleActive === false || Number(m.continuousParkingMinutes || 0) >= rest) return evaluation(null, m, currentSignal.facts);
     return evaluation(highestMatched(rule, function (item) { return Number(m.continuousDrivingMinutes) >= Number(item.thresholdMinutes); }), m, currentSignal.facts);
   }
-  function evaluateSignal(currentSignal, rule) {
+  function evaluateSignal(currentSignal, rule, priorCycle) {
     if (!rule) return evaluation(null, currentSignal.metrics, currentSignal.facts);
     switch (rule.code) {
-      case 'TRANSPORT_PARKING': return evaluateParking(currentSignal, rule);
+      case 'TRANSPORT_PARKING': return evaluateParking(currentSignal, rule, priorCycle);
       case 'PARKING_AREA': return evaluateParkingArea(currentSignal, rule);
       case 'VEHICLE_OVERSPEED': return evaluateSpeed(currentSignal, rule);
       case 'UNLOAD_WEIGHBILL_MISSING': return evaluateWeighbill(currentSignal, rule);
@@ -366,7 +491,7 @@
         var hit = (currentSignal.history || []).filter(function (item) { return item.action === 'TRIGGERED'; })[0];
         return (hit && hit.at) || currentSignal.triggeredAt || currentSignal.detectedAt || nowText();
       })(),
-      recoveredAt: currentSignal.recoveredAt || null, currentValueText: valueText(currentSignal),
+      recoveredAt: currentSignal.recoveredAt || null, currentValueText: valueText(Object.assign({}, currentSignal, { metrics: result.metrics })),
       eventStatus: currentSignal.sourceStatus === 'recovered' ? '已恢复' : '发生中',
       handleStatus: handled ? '已处理' : handling ? '处理中' : '待处理',
       acknowledgedAt: handling ? '2026-10-08 09:06:00' : handled ? '2026-10-08 10:10:00' : null,
@@ -376,7 +501,7 @@
       handlingType: handled ? (currentSignal.sourceId === 'live-parking-handled' ? '已联系司机' : '安排充电') : null,
       parkingReason: handled && currentSignal.sourceId === 'live-parking-handled' ? '道路拥堵' : null,
       handlingResult: handled ? (currentSignal.sourceId === 'live-parking-handled' ? '已联系司机，车辆因前方事故拥堵临时停车，司机及车辆正常，持续关注。' : '已联系司机前往最近充电站，持续关注车辆电量。') : null,
-      ruleSnapshot: ruleSnapshot(rule), metrics: clone(result.metrics), facts: clone(result.facts), lastDetectedAt: nowText()
+      ruleSnapshot: ruleSnapshot(rule), metrics: clone(result.metrics), facts: clone(result.facts), lastDetectedAt: evaluationTime(currentSignal)
     };
   }
 
@@ -414,13 +539,13 @@
     monitorSignals().forEach(function (currentSignal) {
       var rule = resolveRule(rules, currentSignal);
       if (!rule) return;
-      var result = evaluateSignal(currentSignal, rule);
+      var result = evaluateSignal(currentSignal, rule, null);
       if (!currentSignal.wasTriggered && (!rule.enabled || !result.triggered)) return;
       var event = eventFromSignal(currentSignal, rule, result, eventId(events.length));
       events.push(event);
       addSeedLogs(logs, event, currentSignal.history);
     });
-    return { version: 3, rules: rules, events: events, logs: logs };
+    return { version: 4, rules: rules, events: events, logs: logs, parkingCycles: {} };
   }
 
   function migrateVeryOldRules(rules) {
@@ -533,7 +658,7 @@
   }
   function normalize(saved) {
     var seeded = seedState();
-    if (!saved || saved.version !== 3) return seeded;
+    if (!saved || saved.version !== 4) return seeded;
     var savedRules = Array.isArray(saved.rules) ? saved.rules : [];
     var savedById = {};
     savedRules.forEach(function (item) { if (item && item.id) savedById[item.id] = item; });
@@ -554,7 +679,7 @@
     var events = Array.isArray(saved.events) ? saved.events.map(function (event) { return normalizeEvent(event, rules); }) : clone(seeded.events);
     var logs = Array.isArray(saved.logs) ? clone(saved.logs) : clone(seeded.logs);
     mergeSeedHistory(events, logs, seeded);
-    return { version: 3, rules: rules, events: events, logs: logs };
+    return { version: 4, rules: rules, events: events, logs: logs, parkingCycles: saved.parkingCycles && typeof saved.parkingCycles === 'object' ? saved.parkingCycles : {} };
   }
   function load() {
     try { return normalize(JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null')); }
@@ -594,9 +719,9 @@
     event.sourceId = currentSignal.sourceId || event.sourceId;
     event.metrics = clone(result.metrics);
     event.facts = clone(result.facts);
-    event.currentValueText = valueText(currentSignal);
+    event.currentValueText = valueText(Object.assign({}, currentSignal, { metrics: result.metrics }));
     event.location = currentSignal.location || event.location;
-    event.lastDetectedAt = nowText();
+    event.lastDetectedAt = evaluationTime(currentSignal);
   }
   function processSignal(currentSignal, shouldPersist) {
     var currentRule = resolveRule(state.rules, currentSignal);
@@ -613,10 +738,13 @@
     }
     var active = activeEventFor(currentSignal);
     var effectiveRule = active ? snapshotRule(active.ruleSnapshot, active.ruleCode) : currentRule;
-    var result = evaluateSignal(currentSignal, effectiveRule);
+    var priorCycle = currentSignal.ruleCode === 'TRANSPORT_PARKING' ? loadParkingCycle(currentSignal, active) : null;
+    var result = evaluateSignal(currentSignal, effectiveRule, priorCycle);
+    if (currentSignal.ruleCode === 'TRANSPORT_PARKING') saveParkingCycle(currentSignal, result.metrics, result.recovered);
     var changed = cycleChanged;
+    if (currentSignal.ruleCode === 'TRANSPORT_PARKING' && result.metrics && (result.metrics.staticStartTime || result.recovered)) changed = true;
     var shouldRecover = currentSignal.sourceStatus === 'recovered' || (currentSignal.ruleCode === 'TRANSPORT_PARKING'
-      ? parkingShouldRecover(currentSignal, effectiveRule)
+      ? result.recovered
       : !result.triggered);
     if (active) {
       updateEvidence(active, currentSignal, result);
@@ -629,7 +757,7 @@
         var action = levelRank(result.level) > levelRank(active.level) ? 'LEVEL_UPGRADED' : 'LEVEL_DOWNGRADED';
         var from = active.level;
         active.level = result.level;
-        addLog(active.id, action, from + ' → ' + result.level + '；' + valueText(currentSignal), { fromLevel: from, toLevel: result.level, operatedAt: currentSignal.detectedAt });
+        addLog(active.id, action, from + ' → ' + result.level + '；' + valueText(Object.assign({}, currentSignal, { metrics: result.metrics })), { fromLevel: from, toLevel: result.level, operatedAt: evaluationTime(currentSignal) });
         changed = true;
       }
     } else if (currentRule && currentRule.enabled && currentSignal.sourceStatus !== 'recovered' && result.triggered) {
@@ -645,12 +773,12 @@
       active.parkingReason = null;
       active.handlingResult = null;
       state.events.unshift(active);
-      if (currentSignal.ruleCode === 'TRANSPORT_PARKING' && (currentSignal.metrics || {}).parkingStartedAt) {
-        addLog(active.id, 'STILL_STARTED', '车辆进入持续静止状态', { operatedAt: currentSignal.metrics.parkingStartedAt });
+      if (currentSignal.ruleCode === 'TRANSPORT_PARKING' && (result.metrics || {}).staticStartTime) {
+        addLog(active.id, 'STILL_STARTED', '车辆进入持续静止状态', { operatedAt: result.metrics.staticStartTime });
       }
       addLog(active.id, 'TRIGGERED', currentSignal.ruleCode === 'TRANSPORT_PARKING'
-        ? (valueText(currentSignal) + '，' + result.level + '告警')
-        : ('首次达到' + result.level + '等级条件；' + valueText(currentSignal)), { toLevel: result.level, operatedAt: currentSignal.detectedAt || active.triggeredAt });
+        ? (valueText(Object.assign({}, currentSignal, { metrics: result.metrics })) + '，' + result.level + '告警')
+        : ('首次达到' + result.level + '等级条件；' + valueText(currentSignal)), { toLevel: result.level, operatedAt: evaluationTime(currentSignal) || active.triggeredAt });
       changed = true;
     }
     if (changed && shouldPersist !== false) persist();
@@ -798,6 +926,7 @@
     getParkingVehicles: function () { return clone(PARKING_VEHICLES); },
     updateRule: updateRule,
     addParkingRule: addParkingRule,
+    getParkingDraftTemplate: parkingDraftTemplate,
     removeRule: removeRule,
     getEvents: function () { refreshDetection(); return clone(state.events); },
     getEvent: function (id) { return clone(state.events.filter(function (item) { return item.id === id; })[0] || null); },
