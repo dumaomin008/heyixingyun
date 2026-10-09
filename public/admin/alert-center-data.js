@@ -89,10 +89,10 @@
     config.description = parkingRecoveryText(config);
     return config;
   }
-  function inMonitorPeriod(rule, currentSignal) {
+  function inMonitorPeriod(rule, evaluatedAt) {
     if (!rule || rule.monitorPeriod !== '自定义') return true;
-    var stamp = evaluationTime(currentSignal);
-    var hm = String(stamp).slice(11, 16);
+    var hm = clockHm(typeof evaluatedAt === 'string' ? evaluatedAt : evaluationTime(evaluatedAt || {}));
+    if (!hm) return true;
     var start = rule.monitorStart || '00:00';
     var end = rule.monitorEnd || '23:59';
     if (start <= end) return hm >= start && hm <= end;
@@ -183,7 +183,7 @@
     var template = clone(ruleByCode(seedRules(), 'TRANSPORT_PARKING'));
     template.id = '__parking_draft';
     template.isDraft = true;
-    template.name = '停车超时预警';
+    template.name = '';
     template.enabled = true;
     template.scopeType = '指定项目';
     template.projectIds = [];
@@ -231,6 +231,8 @@
         { taskStatus: '执行中', taskBound: true, taskNode: '运输途中', transportRelevant: true, speed: 1, parkingStartedAt: '2026-10-08 10:00:00', parkingMinutes: 25, recoverHoldMinutes: 0, loadingScene: false, unloadingScene: false, charging: false }, []),
       signal({ sourceId: 'live-parking-jinghong', ruleCode: 'TRANSPORT_PARKING', plate: '云A·J5501', driverName: '刘洋', driverId: 'D042', taskId: 'Y20260904000042', route: '景洪水泥厂 → 旧卸料场', cargo: '水泥', location: '景洪城北绕城', triggeredAt: '2026-10-08 10:25:00', sourceStatus: 'active' },
         { taskStatus: '执行中', taskBound: true, taskNode: '运输途中', transportRelevant: true, speed: 0, parkingStartedAt: '2026-10-08 09:57:00', parkingMinutes: 28, recoverHoldMinutes: 0, loadingScene: false, unloadingScene: false, charging: false }, []),
+      signal({ sourceId: 'live-parking-task-complete', ruleCode: 'TRANSPORT_PARKING', plate: '云A·F4470', driverName: '马旺', driverId: 'D023', taskId: 'Y20260904000999', route: '大开门 → 昆钢', cargo: '煤炭', location: '昆钢厂区外侧', triggeredAt: '2026-10-08 07:00:00', sourceStatus: 'active' },
+        { taskStatus: '已完成', taskBound: true, taskNode: '已完成', transportRelevant: true, speed: 0, parkingStartedAt: '2026-10-08 07:00:00', parkingMinutes: 90, recoverHoldMinutes: 0, loadingScene: false, unloadingScene: false, charging: false }, []),
       signal({ sourceId: 'live-area', ruleCode: 'PARKING_AREA', plate: '云A10103', driverName: '周强', driverId: 'D028', taskId: 'Y20260904000028', route: '昆钢 → 北城', cargo: '钢材', location: '北城卸货区', triggeredAt: '2026-10-08 07:45:00', sourceStatus: 'active' },
         { insideBusinessArea: true, areaDwellMinutes: 135, fenceName: '北城卸货区', enteredAt: '2026-10-08 07:45:00' }, ['07:45 进入北城卸货区', '当前仍在业务区域', '停留时长：2小时15分钟']),
       signal({ sourceId: 'live-speed', ruleCode: 'VEHICLE_OVERSPEED', plate: '云A·E1936', driverName: '王磊', driverId: 'D022', taskId: 'Y20260904000022', route: '北城 → 研和', cargo: '铁精粉', location: 'G8511 昆磨高速', triggeredAt: '2026-10-08 10:12:00', sourceStatus: 'active' },
@@ -277,10 +279,15 @@
     if (!item.evaluatedAt) {
       if (item.recoveredAt) item.evaluatedAt = item.recoveredAt;
       else if (item.metrics.parkingStartedAt && item.metrics.parkingMinutes != null) item.evaluatedAt = shiftStamp(item.metrics.parkingStartedAt, item.metrics.parkingMinutes);
-      else item.evaluatedAt = item.detectedAt || nowText();
+      else item.evaluatedAt = nowText();
     }
     item.metrics.evaluatedAt = item.evaluatedAt;
-    item.metrics.staticStartTime = item.metrics.staticStartTime || item.metrics.parkingStartedAt || null;
+    item.metrics.staticCandidateStartAt = item.metrics.staticCandidateStartAt || item.metrics.staticStartTime || item.metrics.parkingStartedAt || null;
+    item.metrics.staticStartTime = item.metrics.staticCandidateStartAt;
+    if (item.metrics.telemetryValid == null) item.metrics.telemetryValid = true;
+    item.metrics.lastTelemetryAt = item.metrics.lastTelemetryAt || item.evaluatedAt;
+    item.metrics.speedSource = item.metrics.speedSource || 'frontend-demo';
+    item.metrics.positionSource = item.metrics.positionSource || 'frontend-demo';
     return item;
   }
 
@@ -300,18 +307,21 @@
     var detect = (rule && rule.detectConfig) || {};
     var still = Number(detect.stillSpeedKph || 3);
     var excluded = m.loadingScene === true || m.unloadingScene === true || m.charging === true;
+    var startAt = m.parkingStartedAt || m.staticCandidateStartAt || m.staticStartTime;
     var facts = [
-      '车辆正在执行任务 ' + (currentSignal.taskId || '—'),
+      isExecutingBoundTask(m, currentSignal) ? '车辆正在执行任务 ' + (currentSignal.taskId || m.taskId || '—') : '车辆当前不在执行运输任务',
       '当前处于' + (m.taskNode || '运输途中'),
       m.taskStatus === '执行中' ? '任务单状态为执行中' : '任务单状态不是执行中',
       m.taskBound === true ? '车辆已绑定当前任务' : '车辆未绑定当前任务',
       excluded ? '命中装货、卸货或充电排除场景' : '未处于装货、卸货或充电场景',
-      (m.staticStartTime || m.parkingStartedAt ? String(m.staticStartTime || m.parkingStartedAt).slice(11, 16) : '—') + ' 开始持续静止',
+      (startAt ? String(startAt).slice(11, 16) : '—') + ' 开始持续静止',
+      m.staticConfirmedAt ? ('连续静止已于 ' + String(m.staticConfirmedAt).slice(11, 16) + ' 确认') : '尚未达到最小持续静止时间',
       '当前已连续异常停车' + (m.parkingMinutes == null ? '—' : m.parkingMinutes) + '分钟',
       '当前车速：' + (m.speed == null ? '—' : m.speed) + ' km/h（静止阈值 ≤' + still + ' km/h）'
     ];
     var matched = highestMatched(rule, function (item) { return Number(m.parkingMinutes) >= Number(item.threshold); });
     if (matched) facts.push('已超过“' + matched.level + '”告警阈值' + matched.threshold + '分钟');
+    if (m.recoverReason) facts.push('恢复原因：' + m.recoverReason);
     return facts;
   }
   function resolveParkingCycle(currentSignal, rule, priorMetrics) {
@@ -325,46 +335,88 @@
     var recoverNeed = Number(rec.recoverDurationMinutes || 3);
     var prior = priorMetrics || {};
     var speed = Number(input.speed);
-    var executing = input.taskStatus === '执行中';
-    var bound = input.taskBound === true && !!(currentSignal.taskId || input.taskId);
+    var minStill = Number(detect.minStillMinutes || 5);
+    var executing = isExecutingBoundTask(input, currentSignal);
     var excluded = (detect.excludeLoading !== false && input.loadingScene === true)
       || (detect.excludeUnloading !== false && input.unloadingScene === true)
       || (detect.excludeCharging !== false && input.charging === true);
-    var inPeriod = inMonitorPeriod(rule, currentSignal);
-    var taskEnded = input.taskEnded === true || input.taskStatus === '已结束' || input.taskStatus === '已完成';
-    var staticStartTime = prior.staticStartTime || prior.parkingStartedAt || null;
-    var recoverCandidateStart = prior.recoverCandidateStart || null;
+    var inPeriod = inMonitorPeriod(rule, evalAt);
+    var taskEnded = isTaskEnded(input);
+    var staticCandidateStartAt = prior.staticCandidateStartAt || prior.staticStartTime || prior.parkingStartedAt
+      || input.staticCandidateStartAt || input.staticStartTime || input.parkingStartedAt || null;
+    var staticConfirmedAt = prior.staticConfirmedAt || input.staticConfirmedAt || null;
+    var parkingStartedAt = prior.parkingStartedAt || null;
+    var recoverCandidateStartAt = prior.recoverCandidateStartAt || prior.recoverCandidateStart
+      || input.recoverCandidateStartAt || input.recoverCandidateStart || null;
     var recovered = false;
-    var canMonitor = executing && bound && inPeriod && !excluded;
-    if (staticStartTime && rec.endOnTaskComplete !== false && (taskEnded || !executing || !bound)) recovered = true;
+    var recoverReason = null;
+    if (input.telemetryValid == null) input.telemetryValid = true;
+    input.lastTelemetryAt = input.lastTelemetryAt || evalAt;
+    input.speedSource = input.speedSource || input.mockSource || 'frontend-demo';
+    input.positionSource = input.positionSource || input.mockSource || 'frontend-demo';
+    var canMonitor = executing && inPeriod && !excluded && input.telemetryValid !== false;
+    if ((parkingStartedAt || staticCandidateStartAt) && rec.endOnTaskComplete !== false && (taskEnded || !executing)) {
+      recovered = true;
+      recoverReason = '任务结束';
+    }
+    if (input.telemetryValid === false) {
+      input.staticCandidateStartAt = staticCandidateStartAt;
+      input.staticStartTime = staticCandidateStartAt;
+      input.staticConfirmedAt = staticConfirmedAt;
+      input.parkingStartedAt = parkingStartedAt;
+      input.parkingMinutes = prior.parkingMinutes != null ? prior.parkingMinutes : 0;
+      input.recoverCandidateStartAt = recoverCandidateStartAt;
+      input.recoverCandidateStart = recoverCandidateStartAt;
+      input.cycleClosed = false;
+      input.durationSource = 'telemetry-invalid';
+      input.recoverReason = null;
+      return { metrics: input, recovered: false, canMonitor: false };
+    }
     if (!recovered && canMonitor && isFinite(speed) && speed <= stillSpeed) {
-      if (!staticStartTime) staticStartTime = input.staticStartTime || input.parkingStartedAt || evalAt;
-      recoverCandidateStart = null;
-    } else if (!recovered && staticStartTime && isFinite(speed) && speed >= recoverSpeed) {
-      if (!recoverCandidateStart) {
-        recoverCandidateStart = prior.recoverCandidateStart || input.recoverCandidateStart
+      if (!staticCandidateStartAt) staticCandidateStartAt = input.staticCandidateStartAt || input.staticStartTime || input.parkingStartedAt || evalAt;
+      recoverCandidateStartAt = null;
+      var stillMinutes = minutesBetween(staticCandidateStartAt, evalAt);
+      if (stillMinutes == null && input.parkingMinutes != null) stillMinutes = Number(input.parkingMinutes);
+      if (stillMinutes != null && stillMinutes >= minStill) {
+        parkingStartedAt = staticCandidateStartAt;
+        if (!staticConfirmedAt) staticConfirmedAt = shiftStamp(staticCandidateStartAt, minStill);
+      }
+    } else if (!recovered && (parkingStartedAt || staticCandidateStartAt) && isFinite(speed) && speed >= recoverSpeed) {
+      if (!recoverCandidateStartAt) {
+        recoverCandidateStartAt = prior.recoverCandidateStartAt || prior.recoverCandidateStart || input.recoverCandidateStartAt || input.recoverCandidateStart
           || (input.recoverHoldMinutes != null ? shiftStamp(evalAt, -Number(input.recoverHoldMinutes)) : evalAt);
       }
-      var hold = minutesBetween(recoverCandidateStart, evalAt);
-      if (hold != null && hold >= recoverNeed) recovered = true;
-    } else if (!recovered && staticStartTime && isFinite(speed) && speed > stillSpeed) {
-      recoverCandidateStart = null;
-    } else if (!canMonitor && !staticStartTime) {
-      recoverCandidateStart = null;
+      var hold = minutesBetween(recoverCandidateStartAt, evalAt);
+      if (hold != null && hold >= recoverNeed) {
+        recovered = true;
+        recoverReason = parkingRecoveryText(rec);
+      }
+    } else if (!recovered && (parkingStartedAt || staticCandidateStartAt) && isFinite(speed) && speed > stillSpeed) {
+      recoverCandidateStartAt = null;
+    } else if (!canMonitor && !(parkingStartedAt || staticCandidateStartAt)) {
+      recoverCandidateStartAt = null;
     }
-    var parkingMinutes = staticStartTime ? minutesBetween(staticStartTime, evalAt) : 0;
+    var durationStart = parkingStartedAt || staticCandidateStartAt;
+    var parkingMinutes = durationStart ? minutesBetween(durationStart, evalAt) : 0;
+    if (!canMonitor && !recovered) {
+      parkingMinutes = prior.parkingMinutes != null ? prior.parkingMinutes : parkingMinutes;
+    }
     if (parkingMinutes == null) {
       parkingMinutes = Number(input.parkingMinutes || 0);
       input.durationSource = 'input-fallback';
     } else {
       input.durationSource = 'cycle';
     }
-    input.staticStartTime = staticStartTime;
-    input.parkingStartedAt = staticStartTime;
+    input.staticCandidateStartAt = staticCandidateStartAt;
+    input.staticStartTime = staticCandidateStartAt;
+    input.staticConfirmedAt = staticConfirmedAt;
+    input.parkingStartedAt = parkingStartedAt || (staticConfirmedAt ? staticCandidateStartAt : null);
     input.parkingMinutes = parkingMinutes;
-    input.recoverCandidateStart = recoverCandidateStart;
-    input.recoverHoldMinutes = recoverCandidateStart ? (minutesBetween(recoverCandidateStart, evalAt) || 0) : 0;
+    input.recoverCandidateStartAt = recoverCandidateStartAt;
+    input.recoverCandidateStart = recoverCandidateStartAt;
+    input.recoverHoldMinutes = recoverCandidateStartAt ? (minutesBetween(recoverCandidateStartAt, evalAt) || 0) : 0;
     input.cycleClosed = recovered;
+    input.recoverReason = recoverReason;
     input.evaluatedAt = evalAt;
     return { metrics: input, recovered: recovered, canMonitor: canMonitor };
   }
@@ -372,20 +424,24 @@
     return [currentSignal.vehicleId || currentSignal.plate, currentSignal.taskId || 'NO_TASK'].join('|');
   }
   function loadParkingCycle(currentSignal, active) {
-    if (active && active.metrics && active.metrics.staticStartTime) return active.metrics;
+    if (active && active.metrics && (active.metrics.staticCandidateStartAt || active.metrics.staticStartTime || active.metrics.parkingStartedAt)) return active.metrics;
     return (state.parkingCycles || {})[parkingCycleKey(currentSignal)] || null;
   }
   function saveParkingCycle(currentSignal, metrics, recovered) {
     state.parkingCycles = state.parkingCycles || {};
     var key = parkingCycleKey(currentSignal);
-    if (recovered || !metrics || !metrics.staticStartTime) {
+    if (recovered || !metrics || !(metrics.staticCandidateStartAt || metrics.staticStartTime)) {
       delete state.parkingCycles[key];
       return;
     }
     state.parkingCycles[key] = {
-      staticStartTime: metrics.staticStartTime,
-      parkingStartedAt: metrics.staticStartTime,
-      recoverCandidateStart: metrics.recoverCandidateStart || null
+      staticCandidateStartAt: metrics.staticCandidateStartAt || metrics.staticStartTime || null,
+      staticStartTime: metrics.staticCandidateStartAt || metrics.staticStartTime || null,
+      staticConfirmedAt: metrics.staticConfirmedAt || null,
+      parkingStartedAt: metrics.parkingStartedAt || null,
+      recoverCandidateStartAt: metrics.recoverCandidateStartAt || metrics.recoverCandidateStart || null,
+      recoverCandidateStart: metrics.recoverCandidateStartAt || metrics.recoverCandidateStart || null,
+      parkingMinutes: metrics.parkingMinutes
     };
   }
   function evaluateParking(currentSignal, rule, priorCycle) {
@@ -397,6 +453,7 @@
     if (!resolved.canMonitor) return evaluation(null, m, facts);
     var detect = rule.detectConfig || defaultParkingDetect();
     if (Number(m.speed) > Number(detect.stillSpeedKph || 3)) return evaluation(null, m, facts);
+    if (!m.parkingStartedAt) return evaluation(null, m, facts);
     if (Number(m.parkingMinutes) < Number(detect.minStillMinutes || 5)) return evaluation(null, m, facts);
     return evaluation(highestMatched(rule, function (item) { return Number(m.parkingMinutes) >= Number(item.threshold); }), m, facts);
   }
@@ -443,13 +500,26 @@
     if (currentSignal.ruleCode === 'DRIVER_FATIGUE') return [currentSignal.ruleCode, currentSignal.driverId, currentSignal.drivingCycleId || (currentSignal.metrics || {}).drivingCycleId].join('|');
     return [currentSignal.ruleCode, currentSignal.vehicleId || currentSignal.plate, currentSignal.taskId || 'NO_TASK'].join('|');
   }
-  function ruleSnapshot(rule) {
+  function ruleSnapshot(rule, result) {
+    var levelName = result && result.level;
+    var level = levelName ? levelByName(rule, levelName) : null;
     return {
       ruleId: rule.id, ruleCode: rule.code, ruleName: rule.name, category: rule.category,
+      ruleVersion: rule.updatedAt || nowText(), updatedAt: rule.updatedAt || nowText(),
+      triggerLevel: levelName || null,
+      triggerThreshold: level && level.threshold != null ? level.threshold : null,
+      stillSpeedKph: ((rule.detectConfig || {}).stillSpeedKph),
+      minStillMinutes: ((rule.detectConfig || {}).minStillMinutes),
+      recoverSpeedKph: ((rule.recoveryConfig || {}).recoverSpeedKph),
+      recoverDurationMinutes: ((rule.recoveryConfig || {}).recoverDurationMinutes),
       levels: clone(rule.levels), recoveryConfig: clone(rule.recoveryConfig),
       detectConfig: clone(rule.detectConfig || null), monitorPeriod: rule.monitorPeriod || '全天',
       monitorStart: rule.monitorStart || '', monitorEnd: rule.monitorEnd || '',
-      scopeType: rule.scopeType || '全部项目', capturedAt: nowText()
+      scopeType: rule.scopeType || '全部项目',
+      projectIds: clone(rule.projectIds || []),
+      projectNames: clone(rule.projectNames || []),
+      vehiclePlates: clone(rule.vehiclePlates || []),
+      capturedAt: nowText()
     };
   }
   function snapshotRule(snapshot, code) {
@@ -460,7 +530,11 @@
       detectConfig: clone(snapshot.detectConfig || defaultParkingDetect()),
       monitorPeriod: snapshot.monitorPeriod || '全天',
       monitorStart: snapshot.monitorStart, monitorEnd: snapshot.monitorEnd,
-      scopeType: snapshot.scopeType || '全部项目'
+      scopeType: snapshot.scopeType || '全部项目',
+      projectIds: clone(snapshot.projectIds || []),
+      projectNames: clone(snapshot.projectNames || []),
+      vehiclePlates: clone(snapshot.vehiclePlates || []),
+      updatedAt: snapshot.updatedAt || snapshot.ruleVersion || snapshot.capturedAt
     };
   }
   function valueText(currentSignal) {
@@ -491,7 +565,9 @@
         var hit = (currentSignal.history || []).filter(function (item) { return item.action === 'TRIGGERED'; })[0];
         return (hit && hit.at) || currentSignal.triggeredAt || currentSignal.detectedAt || nowText();
       })(),
-      recoveredAt: currentSignal.recoveredAt || null, currentValueText: valueText(Object.assign({}, currentSignal, { metrics: result.metrics })),
+      recoveredAt: currentSignal.recoveredAt || null,
+      recoverReason: currentSignal.sourceStatus === 'recovered' ? ((result.metrics || {}).recoverReason || null) : null,
+      currentValueText: valueText(Object.assign({}, currentSignal, { metrics: result.metrics })),
       eventStatus: currentSignal.sourceStatus === 'recovered' ? '已恢复' : '发生中',
       handleStatus: handled ? '已处理' : handling ? '处理中' : '待处理',
       acknowledgedAt: handling ? '2026-10-08 09:06:00' : handled ? '2026-10-08 10:10:00' : null,
@@ -501,7 +577,7 @@
       handlingType: handled ? (currentSignal.sourceId === 'live-parking-handled' ? '已联系司机' : '安排充电') : null,
       parkingReason: handled && currentSignal.sourceId === 'live-parking-handled' ? '道路拥堵' : null,
       handlingResult: handled ? (currentSignal.sourceId === 'live-parking-handled' ? '已联系司机，车辆因前方事故拥堵临时停车，司机及车辆正常，持续关注。' : '已联系司机前往最近充电站，持续关注车辆电量。') : null,
-      ruleSnapshot: ruleSnapshot(rule), metrics: clone(result.metrics), facts: clone(result.facts), lastDetectedAt: evaluationTime(currentSignal)
+      ruleSnapshot: ruleSnapshot(rule, result), metrics: clone(result.metrics), facts: clone(result.facts), lastDetectedAt: evaluationTime(currentSignal)
     };
   }
 
@@ -615,10 +691,23 @@
     var template = ruleByCode(rules, snap.ruleCode || event.ruleCode) || ruleByCode(seedRules(), event.ruleCode);
     if (!Array.isArray(snap.levels) && template) snap.levels = clone(template.levels);
     if (!snap.recoveryConfig && template) snap.recoveryConfig = clone(template.recoveryConfig);
+    if (!snap.detectConfig && template) snap.detectConfig = clone(template.detectConfig);
     snap.ruleId = snap.ruleId || event.ruleId || (template && template.id);
     snap.ruleCode = snap.ruleCode || event.ruleCode;
     snap.ruleName = snap.ruleName || event.type || (template && template.name);
     snap.category = snap.category || event.category || (template && template.category);
+    snap.ruleVersion = snap.ruleVersion || snap.updatedAt || snap.capturedAt || event.triggeredAt;
+    snap.updatedAt = snap.updatedAt || snap.ruleVersion;
+    snap.triggerLevel = snap.triggerLevel || event.initialLevel || event.level;
+    if (snap.triggerThreshold == null) {
+      var snapLevel = (snap.levels || []).filter(function (item) { return item.level === snap.triggerLevel; })[0];
+      snap.triggerThreshold = snapLevel && snapLevel.threshold != null ? snapLevel.threshold : null;
+    }
+    if (snap.stillSpeedKph == null && snap.detectConfig) snap.stillSpeedKph = snap.detectConfig.stillSpeedKph;
+    if (snap.minStillMinutes == null && snap.detectConfig) snap.minStillMinutes = snap.detectConfig.minStillMinutes;
+    if (snap.recoverSpeedKph == null && snap.recoveryConfig) snap.recoverSpeedKph = snap.recoveryConfig.recoverSpeedKph;
+    if (snap.recoverDurationMinutes == null && snap.recoveryConfig) snap.recoverDurationMinutes = snap.recoveryConfig.recoverDurationMinutes;
+    snap.scopeType = snap.scopeType || (template && template.scopeType) || '全部项目';
     snap.capturedAt = snap.capturedAt || event.triggeredAt || nowText();
     return snap;
   }
@@ -629,6 +718,14 @@
     event.ruleSnapshot = normalizeSnapshot(event.ruleSnapshot, event, rules);
     event.level = LEVELS.indexOf(event.level) >= 0 ? event.level : (LEVELS.indexOf(event.ruleSnapshot.level) >= 0 ? event.ruleSnapshot.level : '一般');
     event.initialLevel = LEVELS.indexOf(event.initialLevel) >= 0 ? event.initialLevel : event.level;
+    if (event.ruleCode === 'TRANSPORT_PARKING') {
+      event.metrics.staticCandidateStartAt = event.metrics.staticCandidateStartAt || event.metrics.staticStartTime || event.metrics.parkingStartedAt || null;
+      event.metrics.staticStartTime = event.metrics.staticCandidateStartAt;
+      event.metrics.recoverCandidateStartAt = event.metrics.recoverCandidateStartAt || event.metrics.recoverCandidateStart || null;
+      if (event.metrics.telemetryValid == null) event.metrics.telemetryValid = true;
+      event.metrics.speedSource = event.metrics.speedSource || event.metrics.mockSource || 'frontend-demo';
+      event.metrics.positionSource = event.metrics.positionSource || event.metrics.mockSource || 'frontend-demo';
+    }
     return event;
   }
   function mergeSeedHistory(events, logs, seeded) {
@@ -731,7 +828,7 @@
         if (event.ruleCode !== 'DRIVER_FATIGUE' || event.eventStatus !== '发生中' || event.driverId !== currentSignal.driverId) return;
         if (!event.drivingCycleId || event.drivingCycleId === currentSignal.drivingCycleId) return;
         event.eventStatus = '已恢复';
-        event.recoveredAt = currentSignal.detectedAt || nowText();
+        event.recoveredAt = evaluationTime(currentSignal);
         addLog(event.id, 'RECOVERED', '检测到新的连续驾驶周期，原驾驶周期已结束', { operatedAt: event.recoveredAt });
         cycleChanged = true;
       });
@@ -750,8 +847,9 @@
       updateEvidence(active, currentSignal, result);
       if (shouldRecover) {
         active.eventStatus = '已恢复';
-        active.recoveredAt = currentSignal.recoveredAt || currentSignal.detectedAt || nowText();
-        addLog(active.id, 'RECOVERED', recoveryRemark(currentSignal, effectiveRule), { operatedAt: active.recoveredAt });
+        active.recoveredAt = currentSignal.recoveredAt || evaluationTime(currentSignal);
+        active.recoverReason = (result.metrics && result.metrics.recoverReason) || recoveryRemark(currentSignal, effectiveRule);
+        addLog(active.id, 'RECOVERED', active.recoverReason, { operatedAt: active.recoveredAt });
         changed = true;
       } else if (result.triggered && active.level !== result.level) {
         var action = levelRank(result.level) > levelRank(active.level) ? 'LEVEL_UPGRADED' : 'LEVEL_DOWNGRADED';
@@ -773,8 +871,8 @@
       active.parkingReason = null;
       active.handlingResult = null;
       state.events.unshift(active);
-      if (currentSignal.ruleCode === 'TRANSPORT_PARKING' && (result.metrics || {}).staticStartTime) {
-        addLog(active.id, 'STILL_STARTED', '车辆进入持续静止状态', { operatedAt: result.metrics.staticStartTime });
+      if (currentSignal.ruleCode === 'TRANSPORT_PARKING' && (result.metrics || {}).staticCandidateStartAt) {
+        addLog(active.id, 'STILL_STARTED', '车辆进入持续静止状态', { operatedAt: result.metrics.staticCandidateStartAt });
       }
       addLog(active.id, 'TRIGGERED', currentSignal.ruleCode === 'TRANSPORT_PARKING'
         ? (valueText(Object.assign({}, currentSignal, { metrics: result.metrics })) + '，' + result.level + '告警')
@@ -801,8 +899,28 @@
       return (candidate.vehiclePlates || []).some(function (plate) { return (item.vehiclePlates || []).indexOf(plate) >= 0; });
     })[0] || null;
   }
-  function parkingConflictError() {
-    return '当前适用范围已存在启用中的停车预警规则，请调整适用范围或停用原规则。';
+  function parkingOverlapLabel(candidate, conflict) {
+    if (!conflict) return '';
+    if (candidate.scopeType === '指定项目') {
+      var names = [];
+      (candidate.projectIds || []).forEach(function (id, index) {
+        if ((conflict.projectIds || []).indexOf(id) >= 0) names.push((candidate.projectNames || [])[index] || id);
+      });
+      return names.join('、');
+    }
+    if (candidate.scopeType === '指定车辆') {
+      return (candidate.vehiclePlates || []).filter(function (plate) {
+        return (conflict.vehiclePlates || []).indexOf(plate) >= 0;
+      }).join('、');
+    }
+    return '全部项目';
+  }
+  function parkingConflictError(conflict, candidate) {
+    if (!conflict) return '当前适用范围已存在启用中的同优先级停车预警规则，禁止保存。';
+    var overlap = parkingOverlapLabel(candidate || {}, conflict);
+    if ((candidate && candidate.scopeType) === '指定车辆') return '指定车辆「' + overlap + '」已存在启用中的同优先级规则「' + conflict.name + '」，禁止保存。';
+    if ((candidate && candidate.scopeType) === '指定项目') return '指定项目「' + overlap + '」已存在启用中的同优先级规则「' + conflict.name + '」，禁止保存。';
+    return '已存在启用中的全部项目默认规则「' + conflict.name + '」，禁止保存。';
   }
   function applyParkingPatch(rule, patch) {
     if (patch.name != null) rule.name = String(patch.name).trim() || rule.name;
@@ -827,7 +945,8 @@
       var candidate = clone(rule);
       applyParkingPatch(candidate, patch);
       candidate.enabled = nextEnabled;
-      if (candidate.enabled && parkingConflict(candidate, id)) return { error: parkingConflictError() };
+      var conflict = candidate.enabled ? parkingConflict(candidate, id) : null;
+      if (conflict) return { error: parkingConflictError(conflict, candidate) };
       applyParkingPatch(rule, patch);
     } else {
       if (patch.scopeType) rule.scopeType = patch.scopeType;
@@ -852,17 +971,24 @@
     var template = clone(ruleByCode(seedRules(), 'TRANSPORT_PARKING'));
     template.id = 'RULE_TRANSPORT_PARKING_' + Date.now();
     template.name = (patch && patch.name) || '停车超时预警';
-    template.enabled = true;
+    template.enabled = patch && patch.enabled != null ? !!patch.enabled : true;
     template.scopeType = (patch && patch.scopeType) || '指定项目';
     template.projectIds = [];
     template.projectNames = [];
     template.vehiclePlates = [];
     applyParkingPatch(template, patch || {});
-    if (template.enabled && parkingConflict(template, null)) return { error: parkingConflictError() };
+    if (Array.isArray(patch && patch.levels)) template.levels = clone(patch.levels);
+    if (patch && patch.recoveryConfig) {
+      template.recoveryConfig = Object.assign({}, defaultParkingRecovery(), clone(patch.recoveryConfig));
+      template.recoveryConfig.description = parkingRecoveryText(template.recoveryConfig);
+    }
+    var createdConflict = template.enabled ? parkingConflict(template, null) : null;
+    if (createdConflict) return { error: parkingConflictError(createdConflict, template) };
     template.updatedBy = OPERATOR;
     template.updatedAt = nowText();
     state.rules.push(template);
     persist();
+    refreshDetection();
     return clone(template);
   }
   function removeRule(id) {
@@ -935,6 +1061,10 @@
     handle: handle,
     detectSignal: function (currentSignal) { return processSignal(clone(currentSignal), true); },
     refresh: function () { refreshDetection(); return clone(state.events); },
+    inMonitorPeriod: function (rule, evaluatedAt) { return inMonitorPeriod(rule, evaluatedAt); },
+    evaluateParking: function (currentSignal, rule, priorCycle) {
+      return evaluateParking(clone(currentSignal), rule || resolveRule(state.rules, currentSignal), priorCycle || null);
+    },
     operator: OPERATOR,
     levelRank: levelRank
   };

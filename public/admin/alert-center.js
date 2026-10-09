@@ -84,7 +84,8 @@
     return { project: '', level: '', eventStatus: '发生中', handleStatus: '', keyword: '', extra: '', start: '', end: '' };
   }
   function pageOf(page) {
-    if (!pageState[page]) pageState[page] = { tab: 'list', filters: blankFilters(), activeMetric: '', parkingRuleId: '', parkingDraft: null };
+    if (!pageState[page]) pageState[page] = { tab: 'list', filters: blankFilters(), activeMetric: '', parkingRuleFilters: { name: '', scopeType: '', status: '' }, parkingModal: null };
+    if (!pageState[page].parkingRuleFilters) pageState[page].parkingRuleFilters = { name: '', scopeType: '', status: '' };
     return pageState[page];
   }
   function currentType() {
@@ -326,18 +327,81 @@
     }).join('') + '</div>';
   }
   function parkingRuleOf() {
-    var state = currentState();
-    if (state.parkingDraft && (!state.parkingRuleId || state.parkingRuleId === state.parkingDraft.id)) return state.parkingDraft;
+    var modal = currentState().parkingModal;
+    if (modal && modal.rule) return modal.rule;
     var list = rules().filter(function (item) { return item.code === 'TRANSPORT_PARKING'; });
-    var current = state.parkingRuleId;
-    return list.filter(function (item) { return item.id === current; })[0] || list[0] || null;
+    return list[0] || null;
   }
   function yesNo(value) { return value ? '是' : '否'; }
+  function parkingLevelCell(rule, name) {
+    var level = (rule.levels || []).filter(function (item) { return item.level === name; })[0];
+    if (!level || level.enabled === false) return '未启用';
+    return '≥' + level.threshold + '分钟';
+  }
+  function parkingPeriodText(rule) {
+    if (rule.monitorPeriod !== '自定义') return '全天';
+    return (rule.monitorStart || '00:00') + '-' + (rule.monitorEnd || '23:59');
+  }
+  function parkingScopeObject(rule) {
+    if (rule.scopeType === '指定车辆') {
+      var plates = rule.vehiclePlates || [];
+      if (!plates.length) return { text: '未选车辆', title: '' };
+      if (plates.length === 1) return { text: plates[0], title: plates[0] };
+      return { text: plates[0] + '等' + plates.length + '辆', title: plates.join('、') };
+    }
+    if (rule.scopeType === '指定项目') {
+      var names = rule.projectNames || [];
+      if (!names.length) return { text: '未选项目', title: '' };
+      if (names.length === 1) return { text: names[0], title: names[0] };
+      return { text: names[0] + '等' + names.length + '个项目', title: names.join('、') };
+    }
+    return { text: '全部车辆', title: '全部项目 · 全部车辆' };
+  }
+  function parkingCompactLevels(item) {
+    return '<table class="data-table ac-level-table"><thead><tr><th>告警等级</th><th>是否启用</th><th>连续异常停车时长</th></tr></thead><tbody>'
+      + (item.levels || []).map(function (level, index) {
+        return '<tr><td>' + esc(level.level) + '</td><td><label class="ac-check"><input class="wr-level-enabled" data-level-index="' + index + '" type="checkbox"' + (level.enabled !== false ? ' checked' : '') + '>启用</label></td>'
+          + '<td><div class="wr-unit-input ac-level-input"><input class="form-control-text wr-threshold" data-level-index="' + index + '" type="number" min="1" max="1440" value="' + Number(level.threshold || 0) + '"><em>分钟</em></div></td></tr>';
+      }).join('')
+      + '</tbody></table>';
+  }
   function parkingRulesHtml() {
+    var filters = currentState().parkingRuleFilters;
     var list = rules().filter(function (item) { return item.code === 'TRANSPORT_PARKING'; });
-    var draft = currentState().parkingDraft;
-    var item = parkingRuleOf();
-    if (!item) return '<div class="empty-state"><b>未找到停车预警规则</b></div>';
+    var q = String(filters.name || '').trim().toLowerCase();
+    var rows = list.filter(function (rule) {
+      if (q && String(rule.name || '').toLowerCase().indexOf(q) < 0) return false;
+      if (filters.scopeType && (rule.scopeType || '全部项目') !== filters.scopeType) return false;
+      if (filters.status === '启用' && !rule.enabled) return false;
+      if (filters.status === '停用' && rule.enabled) return false;
+      return true;
+    }).sort(function (a, b) { return String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')); });
+    var body = rows.length ? rows.map(function (rule, index) {
+      var target = parkingScopeObject(rule);
+      var canDelete = rule.id !== 'RULE_TRANSPORT_PARKING';
+      return '<tr><td class="sticky-col">' + (index + 1) + '</td><td>' + esc(rule.name || '未命名规则') + '</td><td>' + esc(rule.scopeType || '全部项目') + '</td>'
+        + '<td title="' + esc(target.title) + '">' + esc(target.text) + '</td>'
+        + '<td>' + esc(parkingLevelCell(rule, '一般')) + '</td><td>' + esc(parkingLevelCell(rule, '严重')) + '</td><td>' + esc(parkingLevelCell(rule, '紧急')) + '</td>'
+        + '<td>' + esc(parkingPeriodText(rule)) + '</td><td>' + (rule.enabled ? badge('启用', 'primary') : badge('停用', 'gray')) + '</td>'
+        + '<td>' + esc(rule.updatedAt || '—') + '</td><td class="sticky-col-r ac-actions">'
+        + '<a class="link" href="javascript:void(0)" onclick="acEditParkingRule(\'' + esc(rule.id) + '\')">编辑</a>'
+        + '<a class="link" href="javascript:void(0)" onclick="acToggleRule(\'' + esc(rule.id) + '\')">' + (rule.enabled ? '停用' : '启用') + '</a>'
+        + (canDelete ? '<a class="link" href="javascript:void(0)" onclick="acRemoveParkingRule(\'' + esc(rule.id) + '\')">删除</a>' : '')
+        + '</td></tr>';
+    }).join('') : '<tr><td colspan="11"><div class="empty-state"><b>没有符合条件的停车超时规则</b><p>可调整筛选条件，或新增一条规则。</p></div></td></tr>';
+    return '<div class="ac-rule-list">'
+      + '<div class="filter-panel ac-filter"><div class="filter-row">'
+      + field('规则名称', '<input class="filter-control" id="acRuleName" value="' + esc(filters.name) + '" placeholder="支持模糊搜索" onkeydown="if(event.key===\'Enter\')acRuleApply()">')
+      + field('适用范围', '<select class="filter-control" id="acRuleScope">' + option('', '全部', filters.scopeType) + option('全部项目', '全部项目', filters.scopeType) + option('指定项目', '指定项目', filters.scopeType) + option('指定车辆', '指定车辆', filters.scopeType) + '</select>')
+      + field('状态', '<select class="filter-control" id="acRuleStatus">' + option('', '全部', filters.status) + option('启用', '启用', filters.status) + option('停用', '停用', filters.status) + '</select>')
+      + '</div><div class="filter-actions"><button class="btn btn-default" type="button" onclick="acRuleReset()">重置</button><button class="btn btn-primary" type="button" onclick="acRuleApply()">查询</button></div></div>'
+      + '<section class="table-section"><div class="table-toolbar"><div class="left"><span class="detail-section-title">停车超时规则</span><span class="ac-table-count">共 ' + rows.length + ' 条</span></div><div class="right"><button class="btn btn-primary" type="button" onclick="acAddParkingRule()">+ 新增规则</button></div></div>'
+      + '<div class="table-wrap ac-table-wrap"><table class="data-table ac-table ac-rule-table"><thead><tr>'
+      + '<th class="sticky-col">序号</th><th>规则名称</th><th>适用范围</th><th>适用对象</th><th>一般</th><th>严重</th><th>紧急</th><th>监控时段</th><th>状态</th><th>更新时间</th><th class="sticky-col-r">操作</th>'
+      + '</tr></thead><tbody>' + body + '</tbody></table></div>'
+      + '<div class="pagination"><div class="pagination-info">共 ' + rows.length + ' 条，当前 ' + (rows.length ? '1-' + rows.length : '0-0') + '</div><div class="pagination-controls"><button class="page-btn active" type="button">1</button></div></div></section></div>';
+  }
+  function parkingModalHtml(item, mode) {
     var detect = item.detectConfig || {};
     var recovery = item.recoveryConfig || {};
     var customPeriod = item.monitorPeriod === '自定义';
@@ -345,60 +409,48 @@
     var vehicles = store().getParkingVehicles ? store().getParkingVehicles() : [];
     var selectedPlates = item.vehiclePlates || [];
     var selectedProjects = item.projectIds || [];
-    var cards = (draft ? [draft].concat(list) : list).map(function (rule) {
-      var active = rule.id === item.id;
-      var scope = rule.scopeType === '指定车辆' ? ((rule.vehiclePlates || []).join('、') || '未选车辆')
-        : rule.scopeType === '指定项目' ? ((rule.projectNames || []).join('、') || '未选项目') : '全部项目';
-      return '<button type="button" class="ac-rule-card' + (active ? ' is-active' : '') + '" onclick="acSelectParkingRule(\'' + esc(rule.id) + '\')">'
-        + '<strong>' + esc(rule.name) + '</strong><span>' + esc(rule.scopeType || '全部项目') + ' · ' + esc(scope) + '</span>'
-        + '<em>' + (rule.isDraft ? '未保存' : ((rule.enabled ? '启用' : '停用') + ' · ' + esc(ruleSummary(rule)))) + '</em></button>';
-    }).join('');
     var projectChecks = projects.map(function (project) {
-      return '<label class="ac-check"><input type="checkbox" name="wrProjectIds" value="' + esc(project.id) + '"' + (selectedProjects.indexOf(project.id) >= 0 ? ' checked' : '') + '>' + esc(project.name) + '</label>';
+      return '<label class="ac-check"><input type="checkbox" name="wrProjectIds" value="' + esc(project.id) + '"' + (selectedProjects.indexOf(project.id) >= 0 ? ' checked' : '') + ' onchange="acParkingCount()">' + esc(project.name) + '</label>';
     }).join('');
     var vehicleChecks = vehicles.map(function (vehicle) {
-      return '<label class="ac-vehicle-option ac-check" data-plate="' + esc(vehicle.plate) + '"><input type="checkbox" name="wrVehiclePlates" value="' + esc(vehicle.plate) + '"' + (selectedPlates.indexOf(vehicle.plate) >= 0 ? ' checked' : '') + '>' + esc(vehicle.plate) + '<small>' + esc(vehicle.projectName) + '</small></label>';
+      return '<label class="ac-vehicle-option ac-check" data-plate="' + esc(vehicle.plate) + '"><input type="checkbox" name="wrVehiclePlates" value="' + esc(vehicle.plate) + '"' + (selectedPlates.indexOf(vehicle.plate) >= 0 ? ' checked' : '') + ' onchange="acParkingCount()">' + esc(vehicle.plate) + '<small>' + esc(vehicle.projectName) + '</small></label>';
     }).join('');
-    return '<div class="ac-rule-panel ac-parking-rules">'
-      + '<div class="ac-rule-picker"><div class="ac-rule-picker-head"><strong>停车预警规则</strong><button class="btn btn-primary" type="button" onclick="acAddParkingRule()">新增</button></div>'
-      + '<div class="ac-rule-cards">' + cards + '</div></div>'
-      + '<div class="ac-rule-bar"><div><strong>' + esc(item.name) + '</strong><span>' + esc(ruleSummary(item)) + '</span></div>'
-      + '<button class="wr-switch' + (item.enabled ? ' is-on' : '') + '" type="button" role="switch" aria-checked="' + (item.enabled ? 'true' : 'false') + '" onclick="acToggleRule(\'' + esc(item.id) + '\')"><i></i><span>' + (item.enabled ? '启用' : '停用') + '</span></button></div>'
-      + '<p class="ac-mock-hint">停车判定、排除场景、恢复持续时长使用前端 mock 信号（metrics.mockSource=frontend-demo），未接入真实 TSP / 任务节点回传。</p>'
-      + '<section class="form-section"><div class="form-section-title"><span class="section-icon"></span>基础设置</div><div class="form-grid col-2">'
-      + formField('规则名称', '<input class="form-control-text" id="wrName" value="' + esc(item.name) + '" maxlength="40">', '')
-      + formField('监控时段', '<select class="form-control-text" id="wrMonitorPeriod" onchange="acMonitorPeriodChange()">' + option('全天', '全天', item.monitorPeriod || '全天') + option('自定义', '自定义', item.monitorPeriod) + '</select>', '规则停用后不再产生新的停车预警，已产生告警不受影响。')
+    var title = mode === 'create' ? '新增停车超时规则' : '编辑停车超时规则';
+    return '<div class="modal ac-parking-modal" role="dialog" aria-modal="true">'
+      + '<div class="modal-header"><div><div class="modal-title">' + title + '</div>' + (item.name ? '<p class="ac-modal-sub">' + esc(item.name) + '</p>' : '') + '</div><button class="modal-close" type="button" onclick="acCloseParkingModal()" aria-label="关闭">×</button></div>'
+      + '<div class="modal-body">'
+      + '<section class="form-section"><div class="form-section-title"><span class="section-icon"></span>基础信息</div><div class="form-grid col-2">'
+      + formField('规则名称 <span class="req">*</span>', '<input class="form-control-text" id="wrName" value="' + esc(item.name) + '" maxlength="40" placeholder="最多40字">', '')
+      + formField('规则状态 <span class="req">*</span>', '<select class="form-control-text" id="wrEnabled">' + option('启用', '启用', item.enabled !== false ? '启用' : '停用') + option('停用', '停用', item.enabled !== false ? '启用' : '停用') + '</select>', '')
+      + formField('监控时段 <span class="req">*</span>', '<select class="form-control-text" id="wrMonitorPeriod" onchange="acMonitorPeriodChange()">' + option('全天', '全天', item.monitorPeriod || '全天') + option('自定义', '自定义', item.monitorPeriod) + '</select>', '开始时间大于结束时间时按跨天时段计算，例如 22:00-06:00')
       + '</div><div class="form-grid col-2" id="wrMonitorRange"' + (customPeriod ? '' : ' hidden') + '>'
-      + formField('开始时间', '<input class="form-control-text" id="wrMonitorStart" type="time" value="' + esc(item.monitorStart || '06:00') + '">', '')
-      + formField('结束时间', '<input class="form-control-text" id="wrMonitorEnd" type="time" value="' + esc(item.monitorEnd || '23:00') + '">', '')
-      + '</div></section>'
-      + '<section class="form-section"><div class="form-section-title"><span class="section-icon"></span>停车判定</div><div class="form-grid col-2">'
-      + formField('监控对象', '<input class="form-control-text" value="执行运输任务中的车辆" disabled>', '本期固定，不允许修改')
-      + formField('静止速度阈值', '<div class="wr-unit-input"><input class="form-control-text" id="wrStillSpeed" type="number" min="0" max="20" step="0.1" value="' + Number(detect.stillSpeedKph || 3) + '"><em>km/h</em></div>', '车速低于等于该值视为静止候选')
-      + formField('最小持续静止时间', '<div class="wr-unit-input"><input class="form-control-text" id="wrMinStill" type="number" min="1" max="120" value="' + Number(detect.minStillMinutes || 5) + '"><em>分钟</em></div>', '用于过滤红绿灯、短时拥堵')
-      + formField('排除装货作业', '<label class="ac-check"><input id="wrExcludeLoading" type="checkbox"' + (detect.excludeLoading !== false ? ' checked' : '') + '>开启</label>', '')
-      + formField('排除卸货作业', '<label class="ac-check"><input id="wrExcludeUnloading" type="checkbox"' + (detect.excludeUnloading !== false ? ' checked' : '') + '>开启</label>', '')
-      + formField('排除充电状态', '<label class="ac-check"><input id="wrExcludeCharging" type="checkbox"' + (detect.excludeCharging !== false ? ' checked' : '') + '>开启</label>', '')
-      + '</div></section>'
-      + '<section class="form-section"><div class="form-section-title"><span class="section-icon"></span>预警等级配置</div>'
-      + '<p class="wr-level-help">同一次连续停车只产生 1 个告警事件，达到更高等级时升级原事件。必须满足 一般阈值 &lt; 严重阈值 &lt; 紧急阈值，停用等级不参与校验，禁止重复阈值。</p>'
-      + levelsEditor(item) + '</section>'
-      + '<section class="form-section"><div class="form-section-title"><span class="section-icon"></span>恢复条件</div><div class="form-grid col-2">'
-      + formField('恢复速度阈值', '<div class="wr-unit-input"><input class="form-control-text" id="wrRecoverSpeed" type="number" min="1" max="80" step="0.1" value="' + Number(recovery.recoverSpeedKph || 5) + '"><em>km/h</em></div>', '')
-      + formField('恢复持续时间', '<div class="wr-unit-input"><input class="form-control-text" id="wrRecoverHold" type="number" min="1" max="60" value="' + Number(recovery.recoverDurationMinutes || 3) + '"><em>分钟</em></div>', '未达到恢复持续时间时，短暂速度漂移不重置连续异常停车时长')
-      + formField('任务结束自动结束监测', '<label class="ac-check"><input id="wrEndOnTask" type="checkbox"' + (recovery.endOnTaskComplete !== false ? ' checked' : '') + '>开启</label>', '', true)
+      + formField('开始时间', '<input class="form-control-text" id="wrMonitorStart" type="time" value="' + esc(item.monitorStart || '22:00') + '">', '')
+      + formField('结束时间', '<input class="form-control-text" id="wrMonitorEnd" type="time" value="' + esc(item.monitorEnd || '06:00') + '">', '')
       + '</div></section>'
       + '<section class="form-section"><div class="form-section-title"><span class="section-icon"></span>适用范围</div><div class="form-grid col-2">'
       + formField('适用范围', '<select class="form-control-text" id="wrScope" onchange="acScopeChange()">' + option('全部项目', '全部项目', item.scopeType || '全部项目') + option('指定项目', '指定项目', item.scopeType) + option('指定车辆', '指定车辆', item.scopeType) + '</select>', '指定车辆 &gt; 指定项目 &gt; 全部项目')
       + '</div>'
-      + '<div id="wrProjectBox"' + (item.scopeType === '指定项目' ? '' : ' hidden') + '><div class="form-label">指定项目</div><div class="ac-check-list">' + projectChecks + '</div></div>'
-      + '<div id="wrVehicleBox"' + (item.scopeType === '指定车辆' ? '' : ' hidden') + '><div class="form-label">指定车辆</div>'
+      + '<div id="wrProjectBox"' + (item.scopeType === '指定项目' ? '' : ' hidden') + '><div class="form-label">指定项目</div><p class="ac-scope-count" id="wrProjectCount">已选择 ' + selectedProjects.length + ' 个项目</p><div class="ac-check-list">' + projectChecks + '</div></div>'
+      + '<div id="wrVehicleBox"' + (item.scopeType === '指定车辆' ? '' : ' hidden') + '><div class="form-label">指定车辆</div><p class="ac-scope-count" id="wrVehicleCount">已选择 ' + selectedPlates.length + ' 辆</p>'
       + '<input class="form-control-text" id="wrVehicleQuery" placeholder="搜索车牌号" oninput="acFilterVehicles()">'
       + '<div class="ac-check-list ac-vehicle-list">' + vehicleChecks + '</div></div></section>'
-      + '<section class="form-section"><div class="form-section-title"><span class="section-icon"></span>保存信息</div><div class="wr-meta"><span>修改人：' + esc(item.isDraft ? '—' : (item.updatedBy || '—')) + '</span><span>修改时间：' + esc(item.isDraft ? '尚未保存' : (item.updatedAt || '—')) + '</span></div>'
-      + (item.isDraft ? '<p class="ac-mock-hint">这是未保存的新规则，取消后不会写入规则库。</p>' : '') + '</section>'
-      + '<div class="ac-rule-footer"><div>' + (item.isDraft ? '<button class="btn btn-default" type="button" onclick="acCancelParkingDraft()">取消新增</button>' : (item.id === 'RULE_TRANSPORT_PARKING' ? '<span class="ac-mock-hint">默认全部项目规则不可删除，可停用。</span>' : '<button class="btn btn-default" type="button" onclick="acRemoveParkingRule(\'' + esc(item.id) + '\')">删除规则</button>')) + '</div>'
-      + '<button class="btn btn-primary" type="button" onclick="acSaveRule()">' + (item.isDraft ? '保存并创建' : '保存规则') + '</button></div></div>';
+      + '<section class="form-section"><div class="form-section-title"><span class="section-icon"></span>停车判定</div><div class="form-grid col-2">'
+      + formField('监控对象', '<input class="form-control-text" value="执行运输任务中的车辆" disabled>', '固定，不允许编辑')
+      + formField('静止速度阈值', '<div class="wr-unit-input"><input class="form-control-text" id="wrStillSpeed" type="number" min="0" max="20" step="0.1" value="' + Number(detect.stillSpeedKph || 3) + '"><em>km/h</em></div>', '0～20 km/h')
+      + formField('最小持续静止时间', '<div class="wr-unit-input"><input class="form-control-text" id="wrMinStill" type="number" min="1" max="120" value="' + Number(detect.minStillMinutes || 5) + '"><em>分钟</em></div>', '最小持续静止时间用于过滤短暂停车和定位/车速抖动，不代表告警阈值。')
+      + formField('排除装货作业', '<label class="ac-check"><input id="wrExcludeLoading" type="checkbox"' + (detect.excludeLoading !== false ? ' checked' : '') + '>开启</label>', '')
+      + formField('排除卸货作业', '<label class="ac-check"><input id="wrExcludeUnloading" type="checkbox"' + (detect.excludeUnloading !== false ? ' checked' : '') + '>开启</label>', '')
+      + formField('排除充电状态', '<label class="ac-check"><input id="wrExcludeCharging" type="checkbox"' + (detect.excludeCharging !== false ? ' checked' : '') + '>开启</label>', '')
+      + '</div></section>'
+      + '<section class="form-section"><div class="form-section-title"><span class="section-icon"></span>告警等级配置</div>'
+      + '<p class="wr-level-help">同一次连续停车只产生 1 个告警事件，达到更高等级时升级原事件。停用等级不参与阈值顺序校验，启用等级禁止重复阈值且必须按风险递增。</p>'
+      + parkingCompactLevels(item) + '</section>'
+      + '<section class="form-section"><div class="form-section-title"><span class="section-icon"></span>恢复条件</div><div class="form-grid col-2">'
+      + formField('恢复速度阈值', '<div class="wr-unit-input"><input class="form-control-text" id="wrRecoverSpeed" type="number" min="1" max="80" step="0.1" value="' + Number(recovery.recoverSpeedKph || 5) + '"><em>km/h</em></div>', '必须高于静止速度阈值')
+      + formField('恢复持续时间', '<div class="wr-unit-input"><input class="form-control-text" id="wrRecoverHold" type="number" min="1" max="60" value="' + Number(recovery.recoverDurationMinutes || 3) + '"><em>分钟</em></div>', '1～60分钟，短暂速度漂移不得立即恢复')
+      + formField('任务结束自动结束监测', '<label class="ac-check"><input id="wrEndOnTask" type="checkbox"' + (recovery.endOnTaskComplete !== false ? ' checked' : '') + '>开启</label>', '', true)
+      + '</div></section></div>'
+      + '<div class="modal-footer"><button class="btn btn-default" type="button" onclick="acCloseParkingModal()">取消</button><button class="btn btn-primary" type="button" onclick="acSaveParkingRule()">保存</button></div></div>';
   }
   function rulesHtml(type) {
     if (type.code === 'TRANSPORT_PARKING') return parkingRulesHtml();
@@ -520,7 +572,7 @@
     var metrics = event.metrics || {};
     var vehicleStatus = parking ? (metrics.taskNode || (event.eventStatus === '发生中' ? '异常停车持续中' : '已恢复正常')) : (event.eventStatus === '发生中' ? '异常状态持续中' : '已恢复正常');
     var alertInfo = parking
-      ? kv('告警类型', '停车超时') + kv('停车开始时间', esc(metrics.parkingStartedAt || '—')) + kv('告警触发时间', esc(event.triggeredAt)) + kv('当前等级', levelBadge(event.level)) + kv('当前等级触发条件', esc(thresholdText(event))) + kv('当前连续异常停车时长', esc(metricText(metrics.parkingMinutes))) + kv('恢复条件', esc(((event.ruleSnapshot || {}).recoveryConfig || {}).description || '—')) + kv('恢复时间', esc(event.recoveredAt || '—'))
+      ? kv('告警类型', '停车超时') + kv('触发规则', esc((event.ruleSnapshot || {}).ruleName || event.type)) + kv('触发时等级', levelBadge(event.initialLevel || event.level)) + kv('当前风险等级', levelBadge(event.level)) + kv('停车开始时间', esc(metrics.parkingStartedAt || '—')) + kv('告警触发时间', esc(event.triggeredAt)) + kv('当前等级触发条件', esc(thresholdText(event))) + kv('触发阈值', esc((event.ruleSnapshot || {}).triggerThreshold != null ? ('连续异常停车 ≥ ' + (event.ruleSnapshot || {}).triggerThreshold + '分钟') : thresholdText(event))) + kv('当前连续异常停车时长', esc(metricText(metrics.parkingMinutes))) + kv('恢复条件', esc(((event.ruleSnapshot || {}).recoveryConfig || {}).description || '—')) + kv('恢复原因', esc(event.recoverReason || (event.eventStatus === '已恢复' ? (((event.ruleSnapshot || {}).recoveryConfig || {}).description || '—') : '—'))) + kv('恢复时间', esc(event.recoveredAt || '—'))
       : kv('触发时间', esc(event.triggeredAt)) + kv('触发规则', esc((event.ruleSnapshot || {}).ruleName || event.type)) + kv('触发时等级', levelBadge(event.initialLevel || event.level)) + kv('当前风险等级', levelBadge(event.level)) + kv('当前等级条件', esc(thresholdText(event))) + kv('恢复条件', esc(((event.ruleSnapshot || {}).recoveryConfig || {}).description || (event.ruleSnapshot || {}).recovery || '—')) + kv('恢复时间', esc(event.recoveredAt || '—'));
     var html = '<header class="ac-drawer-header"><div><small>' + esc(event.id) + '</small><h2>' + esc(event.type) + '</h2></div><button type="button" onclick="acCloseDrawer()" aria-label="关闭">×</button></header>'
       + '<div class="ac-drawer-body">' + summary(event)
@@ -603,9 +655,111 @@
   function checkedValues(name) {
     return Array.prototype.map.call(document.querySelectorAll('input[name="' + name + '"]:checked'), function (input) { return input.value; });
   }
+  function readInteger(id, min, max, label) {
+    var raw = String(((document.getElementById(id) || {}).value || '')).trim();
+    if (!/^-?\d+$/.test(raw)) return { error: label + '必须为整数' };
+    var value = Number(raw);
+    if (value < min || value > max) return { error: label + '应为 ' + min + ' 到 ' + max };
+    return { value: value };
+  }
+  function parkingFormFingerprint() {
+    if (!document.getElementById('wrName')) return '';
+    return JSON.stringify({
+      name: ((document.getElementById('wrName') || {}).value || '').trim(),
+      enabled: (document.getElementById('wrEnabled') || {}).value || '启用',
+      monitorPeriod: (document.getElementById('wrMonitorPeriod') || {}).value || '全天',
+      monitorStart: (document.getElementById('wrMonitorStart') || {}).value || '',
+      monitorEnd: (document.getElementById('wrMonitorEnd') || {}).value || '',
+      stillSpeed: (document.getElementById('wrStillSpeed') || {}).value || '',
+      minStill: (document.getElementById('wrMinStill') || {}).value || '',
+      recoverSpeed: (document.getElementById('wrRecoverSpeed') || {}).value || '',
+      recoverHold: (document.getElementById('wrRecoverHold') || {}).value || '',
+      excludeLoading: !!(document.getElementById('wrExcludeLoading') || {}).checked,
+      excludeUnloading: !!(document.getElementById('wrExcludeUnloading') || {}).checked,
+      excludeCharging: !!(document.getElementById('wrExcludeCharging') || {}).checked,
+      endOnTask: !!(document.getElementById('wrEndOnTask') || {}).checked,
+      scope: (document.getElementById('wrScope') || {}).value || '',
+      projectIds: checkedValues('wrProjectIds'),
+      vehiclePlates: checkedValues('wrVehiclePlates'),
+      levels: readLevels({ code: 'TRANSPORT_PARKING' })
+    });
+  }
+  function openParkingModal(mode, rule) {
+    closeParkingModal(true);
+    currentState().parkingModal = { mode: mode, rule: rule, baseline: '' };
+    var host = document.createElement('div');
+    host.id = 'acParkingModalHost';
+    host.className = 'modal-overlay show ac-parking-modal-host';
+    host.innerHTML = parkingModalHtml(rule, mode);
+    host.addEventListener('click', function (event) { if (event.target === host) window.acCloseParkingModal(); });
+    document.body.appendChild(host);
+    currentState().parkingModal.baseline = parkingFormFingerprint();
+    window.acParkingCount();
+  }
+  function closeParkingModal(force) {
+    if (!document.getElementById('acParkingModalHost')) {
+      currentState().parkingModal = null;
+      return true;
+    }
+    if (!force && currentState().parkingModal && parkingFormFingerprint() !== currentState().parkingModal.baseline) {
+      if (!window.confirm('当前修改尚未保存，确定关闭？')) return false;
+    }
+    var host = document.getElementById('acParkingModalHost');
+    if (host) host.remove();
+    currentState().parkingModal = null;
+    return true;
+  }
+  function saveParkingRule() {
+    var modal = currentState().parkingModal;
+    if (!modal || !modal.rule) return;
+    var item = modal.rule;
+    var name = ((document.getElementById('wrName') || {}).value || '').trim();
+    if (!name) { toast('请填写规则名称'); return; }
+    if (name.length > 40) { toast('规则名称最多 40 字'); return; }
+    var enabled = ((document.getElementById('wrEnabled') || {}).value || '启用') === '启用';
+    var monitorPeriod = (document.getElementById('wrMonitorPeriod') || {}).value || '全天';
+    var monitorStart = (document.getElementById('wrMonitorStart') || {}).value || '06:00';
+    var monitorEnd = (document.getElementById('wrMonitorEnd') || {}).value || '23:00';
+    if (monitorPeriod === '自定义' && (!monitorStart || !monitorEnd)) { toast('请填写自定义监控时段'); return; }
+    var stillSpeed = Number((document.getElementById('wrStillSpeed') || {}).value);
+    if (!isFinite(stillSpeed) || stillSpeed < 0 || stillSpeed > 20) { toast('静止速度阈值应为 0 到 20 km/h'); return; }
+    var minStill = readInteger('wrMinStill', 1, 120, '最小持续静止时间');
+    if (minStill.error) { toast(minStill.error); return; }
+    var recoverSpeed = Number((document.getElementById('wrRecoverSpeed') || {}).value);
+    if (!isFinite(recoverSpeed) || recoverSpeed <= stillSpeed) { toast('恢复速度阈值必须高于静止速度阈值'); return; }
+    var recoverHold = readInteger('wrRecoverHold', 1, 60, '恢复持续时间');
+    if (recoverHold.error) { toast(recoverHold.error); return; }
+    var levels = readLevels(item);
+    var error = validateLevels(item, levels);
+    if (error) { toast(error); return; }
+    var scope = (document.getElementById('wrScope') || {}).value || '全部项目';
+    var projectIds = scope === '指定项目' ? checkedValues('wrProjectIds') : [];
+    var vehiclePlates = scope === '指定车辆' ? checkedValues('wrVehiclePlates') : [];
+    if (scope === '指定项目' && !projectIds.length) { toast('请选择至少一个指定项目'); return; }
+    if (scope === '指定车辆' && !vehiclePlates.length) { toast('请选择至少一辆指定车辆'); return; }
+    var projects = (store().getProjects ? store().getProjects() : []).filter(function (project) { return projectIds.indexOf(project.id) >= 0; });
+    var patch = {
+      name: name, enabled: enabled, monitorPeriod: monitorPeriod, monitorStart: monitorStart, monitorEnd: monitorEnd,
+      levels: levels, scopeType: scope, projectIds: projectIds,
+      projectNames: projects.map(function (project) { return project.name; }), vehiclePlates: vehiclePlates,
+      detectConfig: {
+        stillSpeedKph: stillSpeed, minStillMinutes: minStill.value,
+        excludeLoading: !!(document.getElementById('wrExcludeLoading') || {}).checked,
+        excludeUnloading: !!(document.getElementById('wrExcludeUnloading') || {}).checked,
+        excludeCharging: !!(document.getElementById('wrExcludeCharging') || {}).checked
+      },
+      recoveryConfig: { recoverSpeedKph: recoverSpeed, recoverDurationMinutes: recoverHold.value, endOnTaskComplete: !!(document.getElementById('wrEndOnTask') || {}).checked }
+    };
+    var saved = modal.mode === 'create' ? store().addParkingRule(patch) : store().updateRule(item.id, patch);
+    if (saved && saved.error) { toast(saved.error); return; }
+    closeParkingModal(true);
+    rerender();
+    toast('保存成功');
+  }
   function saveRule() {
     var type = currentType();
-    var item = type.code === 'TRANSPORT_PARKING' ? parkingRuleOf() : ruleOf(type.code);
+    if (type.code === 'TRANSPORT_PARKING') { saveParkingRule(); return; }
+    var item = ruleOf(type.code);
     if (!item) return;
     var levels = readLevels(item);
     var error = validateLevels(item, levels);
@@ -618,47 +772,6 @@
       if (!Number.isInteger(rest) || rest < 10 || rest > 120) { toast('有效休息时长应为 10 到 120 分钟'); return; }
       recoveryConfig.restThresholdMinutes = rest;
     }
-    if (item.code === 'TRANSPORT_PARKING') {
-      var name = ((document.getElementById('wrName') || {}).value || '').trim();
-      if (!name) { toast('请填写规则名称'); return; }
-      var monitorPeriod = (document.getElementById('wrMonitorPeriod') || {}).value || '全天';
-      var monitorStart = (document.getElementById('wrMonitorStart') || {}).value || '06:00';
-      var monitorEnd = (document.getElementById('wrMonitorEnd') || {}).value || '23:00';
-      if (monitorPeriod === '自定义' && (!monitorStart || !monitorEnd)) { toast('请填写自定义监控时段'); return; }
-      var stillSpeed = Number((document.getElementById('wrStillSpeed') || {}).value);
-      var minStill = Number((document.getElementById('wrMinStill') || {}).value);
-      var recoverSpeed = Number((document.getElementById('wrRecoverSpeed') || {}).value);
-      var recoverHold = Number((document.getElementById('wrRecoverHold') || {}).value);
-      if (!isFinite(stillSpeed) || stillSpeed < 0 || stillSpeed > 20) { toast('静止速度阈值应为 0 到 20 km/h'); return; }
-      if (!Number.isInteger(minStill) || minStill < 1 || minStill > 120) { toast('最小持续静止时间应为 1 到 120 分钟'); return; }
-      if (!isFinite(recoverSpeed) || recoverSpeed <= stillSpeed) { toast('恢复速度阈值必须高于静止速度阈值'); return; }
-      if (!Number.isInteger(recoverHold) || recoverHold < 1 || recoverHold > 60) { toast('恢复持续时间应为 1 到 60 分钟'); return; }
-      var projectIds = scope === '指定项目' ? checkedValues('wrProjectIds') : [];
-      var vehiclePlates = scope === '指定车辆' ? checkedValues('wrVehiclePlates') : [];
-      if (scope === '指定项目' && !projectIds.length) { toast('请选择至少一个指定项目'); return; }
-      if (scope === '指定车辆' && !vehiclePlates.length) { toast('请选择至少一辆指定车辆'); return; }
-      var projects = (store().getProjects ? store().getProjects() : []).filter(function (project) { return projectIds.indexOf(project.id) >= 0; });
-      Object.assign(patch, {
-        name: name, monitorPeriod: monitorPeriod, monitorStart: monitorStart, monitorEnd: monitorEnd,
-        detectConfig: {
-          stillSpeedKph: stillSpeed, minStillMinutes: minStill,
-          excludeLoading: !!(document.getElementById('wrExcludeLoading') || {}).checked,
-          excludeUnloading: !!(document.getElementById('wrExcludeUnloading') || {}).checked,
-          excludeCharging: !!(document.getElementById('wrExcludeCharging') || {}).checked
-        },
-        recoveryConfig: { recoverSpeedKph: recoverSpeed, recoverDurationMinutes: recoverHold, endOnTaskComplete: !!(document.getElementById('wrEndOnTask') || {}).checked },
-        projectIds: projectIds, projectNames: projects.map(function (project) { return project.name; }), vehiclePlates: vehiclePlates
-      });
-    }
-    if (item.isDraft) {
-      var created = store().addParkingRule(patch);
-      if (created && created.error) { toast(created.error); return; }
-      currentState().parkingDraft = null;
-      currentState().parkingRuleId = created.id;
-      rerender();
-      toast('规则已创建');
-      return;
-    }
     var saved = store().updateRule(item.id, patch);
     if (saved && saved.error) { toast(saved.error); return; }
     rerender();
@@ -666,16 +779,16 @@
   }
   function toggleRule(id) {
     var type = currentType();
-    var item = id && id === '__parking_draft' ? currentState().parkingDraft : (id ? store().getRule(id) : (type.code === 'TRANSPORT_PARKING' ? parkingRuleOf() : ruleOf(type.code)));
+    var item = id ? store().getRule(id) : ruleOf(type.code);
     if (!item) return;
-    if (item.isDraft) {
-      item.enabled = !item.enabled;
-      currentState().parkingDraft = item;
-      rerender();
-      return;
-    }
     if (item.enabled && !window.confirm('停用后系统将不再根据该规则产生新的告警，已产生的告警继续使用原规则快照。')) return;
-    var saved = store().updateRule(item.id, { enabled: !item.enabled, levels: item.levels, recoveryConfig: item.recoveryConfig, scopeType: item.scopeType });
+    var patch = { enabled: !item.enabled, levels: item.levels, recoveryConfig: item.recoveryConfig, scopeType: item.scopeType };
+    if (item.code === 'TRANSPORT_PARKING') {
+      patch.projectIds = item.projectIds;
+      patch.projectNames = item.projectNames;
+      patch.vehiclePlates = item.vehiclePlates;
+    }
+    var saved = store().updateRule(item.id, patch);
     if (saved && saved.error) { toast(saved.error); return; }
     rerender();
     toast(item.enabled ? '规则已停用' : '规则已启用');
@@ -690,7 +803,7 @@
     };
   }
 
-  window.acTab = function (tab) { currentState().tab = tab === 'rules' ? 'rules' : 'list'; closeDrawer(); rerender(); };
+  window.acTab = function (tab) { if (!closeParkingModal()) return; currentState().tab = tab === 'rules' ? 'rules' : 'list'; closeDrawer(); rerender(); };
   window.acApply = function () { readFilters(); currentState().activeMetric = ''; rerender(); };
   window.acReset = function () { var state = currentState(); state.filters = blankFilters(); state.activeMetric = ''; rerender(); };
   window.acStatus = function (status) { currentState().filters.eventStatus = status; currentState().activeMetric = ''; rerender(); };
@@ -725,42 +838,32 @@
   };
   window.acExport = exportCsv;
   window.acSaveRule = saveRule;
+  window.acSaveParkingRule = saveParkingRule;
   window.acToggleRule = toggleRule;
-  window.acSelectParkingRule = function (id) {
-    var state = currentState();
-    if (state.parkingDraft && id !== state.parkingDraft.id) {
-      if (!window.confirm('未保存的新规则将丢弃，确定切换？')) return;
-      state.parkingDraft = null;
-    }
-    state.parkingRuleId = id;
+  window.acRuleApply = function () {
+    var filters = currentState().parkingRuleFilters;
+    filters.name = ((document.getElementById('acRuleName') || {}).value || '').trim();
+    filters.scopeType = (document.getElementById('acRuleScope') || {}).value || '';
+    filters.status = (document.getElementById('acRuleStatus') || {}).value || '';
+    rerender();
+  };
+  window.acRuleReset = function () {
+    currentState().parkingRuleFilters = { name: '', scopeType: '', status: '' };
     rerender();
   };
   window.acAddParkingRule = function () {
-    var state = currentState();
-    if (state.parkingDraft) {
-      state.parkingRuleId = state.parkingDraft.id;
-      rerender();
-      toast('请先保存或取消当前未保存的规则');
-      return;
-    }
-    state.parkingDraft = store().getParkingDraftTemplate();
-    state.parkingRuleId = state.parkingDraft.id;
-    state.tab = 'rules';
-    rerender();
-    toast('请填写后保存，取消不会创建规则');
+    openParkingModal('create', store().getParkingDraftTemplate());
   };
-  window.acCancelParkingDraft = function () {
-    var state = currentState();
-    state.parkingDraft = null;
-    state.parkingRuleId = '';
-    rerender();
-    toast('已取消新增，未创建规则');
+  window.acEditParkingRule = function (id) {
+    var rule = store().getRule(id);
+    if (!rule) { toast('未找到规则'); return; }
+    openParkingModal('edit', rule);
   };
+  window.acCloseParkingModal = function () { closeParkingModal(false); };
   window.acRemoveParkingRule = function (id) {
-    if (!window.confirm('删除后该规则不再用于新的停车预警，已产生告警不受影响。')) return;
+    if (!window.confirm('删除后该规则不再用于新的停车预警，已产生告警不受影响。确定删除？')) return;
     var result = store().removeRule(id);
     if (result && result.error) { toast(result.error); return; }
-    currentState().parkingRuleId = '';
     rerender();
     toast('规则已删除');
   };
@@ -775,6 +878,12 @@
       row.hidden = !!(q && String(row.getAttribute('data-plate') || '').toLowerCase().indexOf(q) < 0);
     });
   };
+  window.acParkingCount = function () {
+    var projectCount = document.getElementById('wrProjectCount');
+    var vehicleCount = document.getElementById('wrVehicleCount');
+    if (projectCount) projectCount.textContent = '已选择 ' + checkedValues('wrProjectIds').length + ' 个项目';
+    if (vehicleCount) vehicleCount.textContent = '已选择 ' + checkedValues('wrVehiclePlates').length + ' 辆';
+  };
   window.acScopeChange = function () {
     var project = document.getElementById('wrProject');
     var scope = document.getElementById('wrScope');
@@ -783,8 +892,9 @@
     if (project && scope) project.disabled = scope.value !== '指定项目';
     if (projectBox) projectBox.hidden = !scope || scope.value !== '指定项目';
     if (vehicleBox) vehicleBox.hidden = !scope || scope.value !== '指定车辆';
+    window.acParkingCount();
   };
-  window.addEventListener('hashchange', closeDrawer);
+  window.addEventListener('hashchange', function () { closeParkingModal(true); closeDrawer(); });
 
   if (!window.app) return;
   TYPES.forEach(function (type) { bindPage(type.page); });
