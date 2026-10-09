@@ -9,9 +9,22 @@ var app = {
   },
 
   navigate: function(page) {
-    if (!this.pages[page]) return;
+    var requested = page;
+    if (page === 'order-fare-lock') page = 'order-list';
+    if (page === 'alert-records' || page === 'alert-center') page = 'alert-parking';
+    if (page === 'warning-rule-management') { window.__acPreferTab = 'rules'; page = 'alert-parking'; }
+    if (page === 'secondary-fence') page = 'fence-list';
+    if (page === 'area-billing-ops') {
+      window.__weighDeskTab = 'ops';
+      page = 'weigh-point-audit';
+    }
+    if (!this.pages[page]) {
+      if (typeof showAppToast === 'function') showAppToast('页面暂未接入');
+      return;
+    }
     if (page === this.currentPage) {
       if (window.location.hash !== '#' + page) window.location.hash = '#' + page;
+      if (requested === 'area-billing-ops' || window.__weighDeskTab || window.__acPreferTab) this.render();
       return;
     }
     this.currentPage = page;
@@ -22,10 +35,17 @@ var app = {
   },
 
   render: function() {
+    var main = document.getElementById('mainContent');
     var p = this.pages[this.currentPage];
-    document.getElementById('mainContent').innerHTML = p ? p.render() : '';
-    // Trigger post-render hooks
-    if (p && p.onRender) p.onRender();
+    if (!main) return;
+    try {
+      main.innerHTML = p ? p.render() : '';
+      if (p && p.onRender) p.onRender();
+    } catch (err) {
+      console.error('页面渲染失败', this.currentPage, err);
+      main.innerHTML = '<div class="content-area page-standard"><div class="page-header"><div class="page-title">页面无法打开</div><p class="page-sub">「' + String(this.currentPage || '') + '」渲染出错，请刷新后重试。</p></div></div>';
+      if (typeof showAppToast === 'function') showAppToast('页面无法打开');
+    }
   },
 
   updateNav: function() {
@@ -35,6 +55,10 @@ var app = {
     var activePage = page;
     if (page === 'fence-edit') activePage = 'fence-list';
     if (page === 'trip-detail') activePage = 'circle-report';
+    if (page === 'order-create' || page === 'order-dynamic-detail' || page === 'waybill-split') activePage = 'order-list';
+    if (page === 'waybill-detail' || page === 'waybill-edit') activePage = 'waybill-management';
+    if (page === 'customer-edit') activePage = 'customer-management';
+    if (page === 'segment-route-edit') activePage = 'segment-route-management';
 
     document.querySelectorAll('.nav-item').forEach(function(el) {
       var p = el.getAttribute('data-page');
@@ -44,12 +68,19 @@ var app = {
     document.querySelectorAll('.nav-group').forEach(function(group) {
       var hasActive = !!group.querySelector('.nav-item.active');
       group.classList.toggle('has-active', hasActive);
-      if (hasActive) group.classList.add('open');
     });
   },
 
   init: function() {
     var hashPage = window.location.hash.replace('#', '');
+    if (hashPage === 'order-fare-lock') hashPage = 'order-list';
+    if (hashPage === 'alert-records' || hashPage === 'alert-center') hashPage = 'alert-parking';
+    if (hashPage === 'warning-rule-management') { window.__acPreferTab = 'rules'; hashPage = 'alert-parking'; }
+    if (hashPage === 'secondary-fence') hashPage = 'fence-list';
+    if (hashPage === 'area-billing-ops') {
+      window.__weighDeskTab = 'ops';
+      hashPage = 'weigh-point-audit';
+    }
     if (hashPage && this.pages[hashPage]) {
       this.currentPage = hashPage;
     }
@@ -57,21 +88,38 @@ var app = {
     this.updateNav();
 
     var self = this;
-    document.querySelectorAll('.nav-item').forEach(function(el) {
-      el.addEventListener('click', function() {
-        var p = el.getAttribute('data-page');
-        if (p && self.pages[p]) self.navigate(p);
+    var navRoot = document.querySelector('.sidebar nav') || document.querySelector('.sidebar');
+    if (navRoot && !navRoot.__navDelegated) {
+      navRoot.__navDelegated = true;
+      navRoot.addEventListener('click', function (e) {
+        var parent = e.target.closest('.nav-parent[data-toggle-group]');
+        if (parent && navRoot.contains(parent) && typeof parent.onclick !== 'function') {
+          var group = parent.closest('.nav-group');
+          if (group) group.classList.toggle('open');
+        }
+        var item = e.target.closest('.nav-item[data-page]');
+        if (!item || !navRoot.contains(item)) return;
+        var page = item.getAttribute('data-page');
+        if (page && self.pages[page]) self.navigate(page);
+        else if (page && typeof showAppToast === 'function') showAppToast('页面暂未接入');
       });
-    });
-    document.querySelectorAll('.nav-parent[data-toggle-group]').forEach(function(el) {
-      el.addEventListener('click', function() {
-        var group = el.closest('.nav-group');
-        if (group) group.classList.toggle('open');
-      });
-    });
+    }
     window.addEventListener('hashchange', function() {
-      var page = window.location.hash.replace('#', '');
-      if (!page || !self.pages[page] || page === self.currentPage) return;
+      var requested = window.location.hash.replace('#', '');
+      var page = requested;
+      if (page === 'order-fare-lock') page = 'order-list';
+      if (page === 'alert-records' || page === 'alert-center') page = 'alert-parking';
+      if (page === 'warning-rule-management') { window.__acPreferTab = 'rules'; page = 'alert-parking'; }
+      if (page === 'secondary-fence') page = 'fence-list';
+      if (page === 'area-billing-ops') {
+        window.__weighDeskTab = 'ops';
+        page = 'weigh-point-audit';
+      }
+      if (!page || !self.pages[page]) return;
+      if (page === self.currentPage) {
+        if (requested === 'area-billing-ops' || window.__weighDeskTab || window.__acPreferTab) self.render();
+        return;
+      }
       self.currentPage = page;
       self.render();
       self.updateNav();
@@ -81,13 +129,11 @@ var app = {
 };
 
 // ========== Helper to open fence-edit with mode ==========
-function openFenceEdit(action, code) {
-  app.navigate('fence-edit');
-  // Set mode via URL hash-like state
+function openFenceEdit(action, code, kind) {
   window._fenceEditMode = action;
   window._fenceEditCode = code || '';
-  // Re-render to pick up mode
-  setTimeout(function() { app.render(); }, 10);
+  window._fenceCreateKind = action === 'add' ? (kind || '') : '';
+  app.navigate('fence-edit');
 }
 
 function goTripDetail(code, status) {
@@ -99,22 +145,30 @@ function goTripDetail(code, status) {
 /* ===================== SCRIPT BLOCK 2 (lines 744-917) ===================== */
 app.register('fence-list', function() {
   return ''
-  + '<div class="top-tabs">'
-  + '<div class="tab-item active">电子围栏</div>'
-  + '</div>'
   + '<div class="content-area">'
   + '<div class="breadcrumb"><a href="#">基础信息</a><span class="sep">/</span><span class="current">电子围栏</span></div>'
-  + '<div class="page-header">'
-  + '<div class="page-title">电子围栏 <span class="sub">管理装卸货点地址</span></div>'
+  + '<div class="page-header fence-page-header">'
+  + '<div><div class="page-title">电子围栏</div>'
+  + '<p class="detail-section-sub">区域电子围栏用于区域派单的卸货端；点电子围栏用于精确地址派单，以及打卡命中 / 事后改点。点可挂到所属区域围栏，不挂也不挡创单。</p></div>'
   + '<div class="page-actions">'
-  + '<button class="btn btn-primary" onclick="openFenceEdit(\'add\')">'
-  + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>'
-  + '新增围栏</button>'
+  + '<button class="btn btn-primary" onclick="openFenceEdit(\'add\')">新增电子围栏</button>'
   + '</div></div>'
   + buildFenceFilterHTML() + buildFenceTableHTML()
   + '</div>';
 }, ['fence-list']);
-app.pages['fence-list'].onRender = function() { filteredFenceData = (window.__fences || fenceData).slice(); fencePage = 1; buildFenceTable(); preloadFences(); };
+app.pages['fence-list'].onRender = function() {
+  fillFenceParentFilterOptions();
+  applyFenceFilters();
+  preloadFences().then(function () {
+    fillFenceParentFilterOptions();
+    applyFenceFilters();
+    reopenFenceAreaPointsIfNeeded();
+  });
+};
+
+app.register('segment-route-management', function () {
+  return '<div class="content-area page-standard"><div class="page-title">分段线路管理</div></div>';
+}, ['segment-route-management']);
 
 // ===== Fence Data =====
 var fenceData = [];
@@ -123,75 +177,209 @@ var fenceData = [];
 var filteredFenceData = [];
 var fencePage = 1;
 var fencePageSize = 20;
+var fenceTypeTab = '全部';
+
+function fenceVal(id) {
+  var el = document.getElementById(id);
+  return el ? String(el.value || '').trim() : '';
+}
+
+function fenceMatchesFilters(d, ignoreType) {
+  var fName = fenceVal('fenceFilterName');
+  var fCode = fenceVal('fenceFilterCode');
+  var fIo = fenceVal('fenceFilterIo') || '全部';
+  var fParent = fenceVal('fenceFilterParent') || '全部';
+  var fAttach = fenceVal('fenceFilterAttach') || '全部';
+  var fStatus = fenceVal('fenceFilterStatus') || '全部';
+  if (fName && String(d.name || '').indexOf(fName) === -1) return false;
+  if (fCode && String(d.code || '').indexOf(fCode) === -1) return false;
+  if (fIo !== '全部' && d.ioType !== fIo) return false;
+  if (fStatus !== '全部' && d.enableStatus !== fStatus) return false;
+  if (!ignoreType && fenceTypeTab !== '全部' && d.type !== fenceTypeTab) return false;
+  var parent = String(d.parentArea || '').trim();
+  if (fParent === '未关联区域围栏') {
+    if (d.type !== '点' || parent) return false;
+  } else if (fParent !== '全部') {
+    if (parent !== fParent) return false;
+  }
+  if (fAttach === '已挂区域' && (d.type !== '点' || !parent)) return false;
+  if (fAttach === '未挂区域' && (d.type !== '点' || parent)) return false;
+  return true;
+}
 
 function applyFenceFilters() {
-  var items = document.querySelectorAll('#fenceFilterPanel .filter-item');
-  var fName = items[0].querySelector('input').value.trim();
-  var fCode = items[1].querySelector('input').value.trim();
-  var fType = items[2].querySelector('select').value;
-  var fDept = items[3].querySelector('select').value;
-  var fCat = items[4].querySelector('select').value;
-  var fShare = items[5].querySelector('select').value;
-  var fIo = items[6].querySelector('select').value;
-  var fStatus = items[7].querySelector('select').value;
-
-  filteredFenceData = (window.__fences || fenceData).filter(function(d) {
-    if (fName && d.name.indexOf(fName) === -1) return false;
-    if (fCode && d.code.indexOf(fCode) === -1) return false;
-    if (fType !== '全部' && d.type !== fType) return false;
-    if (fDept !== '全部' && d.dept !== fDept) return false;
-    if (fCat !== '全部' && d.cat !== fCat) return false;
-    if (fShare !== '全部' && d.share !== fShare) return false;
-    if (fIo !== '全部' && d.ioType !== fIo) return false;
-    if (fStatus !== '全部' && d.enableStatus !== fStatus) return false;
-    return true;
-  });
-  fencePage = 1;
+  var source = window.__fences || fenceData;
+  filteredFenceData = source.filter(function (d) { return fenceMatchesFilters(d, false); });
+  var totalPages = Math.max(1, Math.ceil(filteredFenceData.length / fencePageSize) || 1);
+  if (fencePage > totalPages) fencePage = totalPages;
+  if (fencePage < 1) fencePage = 1;
   buildFenceTable();
 }
 
-function resetFenceFilters() {
-  var panel = document.getElementById('fenceFilterPanel');
-  var inputs = panel.querySelectorAll('input.filter-control');
-  var selects = panel.querySelectorAll('select.filter-control');
-  for (var i = 0; i < inputs.length; i++) inputs[i].value = '';
-  for (var j = 0; j < selects.length; j++) selects[j].value = '全部';
-  filteredFenceData = (window.__fences || fenceData).slice();
+function queryFenceFilters() {
   fencePage = 1;
-  buildFenceTable();
+  applyFenceFilters();
+}
+
+function resetFenceFilters() {
+  var ids = ['fenceFilterName', 'fenceFilterCode'];
+  ids.forEach(function (id) { var el = document.getElementById(id); if (el) el.value = ''; });
+  ['fenceFilterIo', 'fenceFilterParent', 'fenceFilterAttach', 'fenceFilterStatus'].forEach(function (id) {
+    var el = document.getElementById(id); if (el) el.value = '全部';
+  });
+  fenceTypeTab = '全部';
+  fencePage = 1;
+  applyFenceFilters();
+}
+
+function setFenceTypeTab(tab) {
+  fenceTypeTab = tab || '全部';
+  fencePage = 1;
+  applyFenceFilters();
+}
+
+function fillFenceParentFilterOptions() {
+  var sel = document.getElementById('fenceFilterParent');
+  if (!sel) return;
+  var current = sel.value || '全部';
+  var names = typeof areaFenceNames === 'function' ? areaFenceNames() : [];
+  sel.innerHTML = '<option value="全部">全部</option><option value="未关联区域围栏">未关联区域围栏</option>'
+    + names.map(function (name) {
+      return '<option value="' + escapeFenceAttr(name) + '">' + escapeFenceHtml(name) + '</option>';
+    }).join('');
+  sel.value = current;
+  if (sel.value !== current) sel.value = '全部';
 }
 
 function buildFenceFilterHTML() {
   return '<div class="filter-panel" id="fenceFilterPanel"><div class="filter-row">'
-  + lt('区域名称','<input class="filter-control" type="text" placeholder="请输入区域名称">')
-  + lt('区域编号','<input class="filter-control" type="text" placeholder="请输入区域编号">')
-  + lt('区域类型','<select class="filter-control"><option>全部</option><option>点</option><option>面</option><option>线</option></select>')
-  + lt('所属部门','<select class="filter-control"><option>全部</option><option>云南牧圣新能源科技有限公司</option></select>')
-  + lt('类型','<select class="filter-control"><option>全部</option><option>仓库</option><option>工厂</option><option>门店</option><option>物流园</option></select>')
-  + lt('共享模式','<select class="filter-control"><option>全部</option><option>部门</option><option>企业</option><option>公共</option></select>')
-  + lt('收/发货类型','<select class="filter-control"><option>全部</option><option>收货区域</option><option>发货区域</option></select>')
-  + lt('状态','<select class="filter-control"><option>全部</option><option>启用</option><option>停用</option></select>')
-  + '</div><div class="filter-actions"><button class="btn btn-default" onclick="resetFenceFilters()">重置</button><button class="btn btn-primary" onclick="applyFenceFilters()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>查询</button></div></div>';
+  + lt('围栏名称','<input class="filter-control" id="fenceFilterName" type="text" placeholder="请输入围栏名称">')
+  + lt('围栏编号','<input class="filter-control" id="fenceFilterCode" type="text" placeholder="请输入围栏编号">')
+  + lt('收/发货类型','<select class="filter-control" id="fenceFilterIo"><option>全部</option><option>收货区域</option><option>发货区域</option><option>收发货</option></select>')
+  + lt('所属区域围栏','<select class="filter-control" id="fenceFilterParent"><option value="全部">全部</option><option value="未关联区域围栏">未关联区域围栏</option></select>')
+  + lt('挂接状态','<select class="filter-control" id="fenceFilterAttach"><option value="全部">全部</option><option value="已挂区域">已挂区域</option><option value="未挂区域">未挂区域</option></select>')
+  + lt('启用状态','<select class="filter-control" id="fenceFilterStatus"><option>全部</option><option>启用</option><option>停用</option></select>')
+  + '</div><div class="filter-actions"><button class="btn btn-default" onclick="resetFenceFilters()">重置</button><button class="btn btn-primary" onclick="queryFenceFilters()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>查询</button></div></div>';
   function lt(l,c){ return '<div class="filter-item"><label class="filter-label">'+l+'</label>'+c+'</div>'; }
+}
+
+function escapeFenceHtml(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+function escapeFenceAttr(value) {
+  return escapeFenceHtml(value).replace(/'/g, '&#39;');
+}
+function childPointCount(areaName) {
+  if (!areaName) return 0;
+  var n = 0;
+  (window.__fences || fenceData).forEach(function (f) {
+    if (f.type === '点' && f.parentArea === areaName) n += 1;
+  });
+  return n;
+}
+function fenceTypeBadge(type) {
+  if (type === '区域') return '<span class="badge badge-info">区域</span>';
+  if (type === '行政区域') return '<span class="badge">行政区域</span>';
+  return '<span class="badge badge-success">点</span>';
+}
+function fenceEnableBadge(status) {
+  return status === '启用'
+    ? '<span class="badge badge-success">启用</span>'
+    : '<span class="badge badge-warning">停用</span>';
+}
+function fenceTabCounts() {
+  var source = (window.__fences || fenceData).filter(function (d) { return fenceMatchesFilters(d, true); });
+  var counts = { '全部': source.length, '区域': 0, '点': 0 };
+  source.forEach(function (d) { if (counts[d.type] != null) counts[d.type] += 1; });
+  return counts;
+}
+function fenceTypeTabHtml() {
+  var counts = fenceTabCounts();
+  if (fenceTypeTab === '行政区域') fenceTypeTab = '全部';
+  return ['全部', '区域', '点'].map(function (tab) {
+    return '<span class="tab' + (fenceTypeTab === tab ? ' active' : '') + '" onclick="setFenceTypeTab(\'' + tab + '\')">' + tab + '<span class="count">' + counts[tab] + '</span></span>';
+  }).join('');
+}
+function openFenceAreaPoints(encodedName) {
+  var name = decodeURIComponent(encodedName || '');
+  if (name && typeof openAreaPointsModal === 'function') openAreaPointsModal(name);
+}
+function reopenFenceAreaPointsIfNeeded() {
+  var name = window.__reopenAreaPointsModal;
+  if (!name) return;
+  window.__reopenAreaPointsModal = '';
+  if (typeof openAreaPointsModal === 'function') openAreaPointsModal(name);
+}
+
+function fenceNameCell(d) {
+  var name = escapeFenceHtml(d.name);
+  return '<td class="sticky-col" style="font-weight:500;">' + name + '</td>';
+}
+function fenceParentCell(d) {
+  if (d.type !== '点') return '<td>—</td>';
+  var parent = String(d.parentArea || '').trim();
+  if (!parent) return '<td><span class="fence-parent-muted">未关联区域围栏</span></td>';
+  return '<td>' + escapeFenceHtml(parent) + '</td>';
+}
+function fenceChildCountCell(d) {
+  if (d.type !== '区域') return '<td>—</td>';
+  var count = childPointCount(d.name);
+  return '<td><a class="link" href="javascript:void(0)" onclick="openFenceAreaPoints(\'' + encodeURIComponent(d.name) + '\')">' + count + '</a></td>';
+}
+function fenceActionCell(d) {
+  var nextLabel = d.enableStatus === '启用' ? '停用' : '启用';
+  return '<td class="sticky-col-r">'
+    + '<a href="javascript:void(0)" class="link" onclick="openFenceEdit(\'edit\',\'' + escapeFenceAttr(d.code) + '\')">修改</a>'
+    + '<span style="color:var(--c-border-d);margin:0 4px;">|</span>'
+    + '<a href="javascript:void(0)" class="link" onclick="toggleFenceEnable(\'' + escapeFenceAttr(d.code) + '\')">' + nextLabel + '</a>'
+    + '</td>';
+}
+function renderFenceRow(d, seq) {
+  var nameCell = fenceNameCell(d);
+  var typeCell = '<td>' + fenceTypeBadge(d.type) + '</td>';
+  var ioCell = '<td>' + escapeFenceHtml(d.ioType || '—') + '</td>';
+  var locCell = '<td><span class="tooltip" title="' + escapeFenceAttr(d.location) + '">' + escapeFenceHtml(d.location || '—') + '</span></td>';
+  var enableCell = '<td>' + fenceEnableBadge(d.enableStatus) + '</td>';
+  var owning = findOwningDistrict(d.code);
+  var owningCell = owning ? '<td><span class="tooltip" title="' + escapeFenceAttr(owning.name + '（' + owning.type + '）') + '">' + escapeFenceHtml(owning.name) + '</span></td>' : '<td>—</td>';
+  return '<tr>'
+    + '<td class="sticky-col col-seq">' + seq + '</td>' + nameCell
+    + '<td class="col-mono">' + escapeFenceHtml(d.code) + '</td>' + owningCell + typeCell
+    + '<td>' + escapeFenceHtml(d.cat || '—') + '</td>' + ioCell + fenceParentCell(d) + fenceChildCountCell(d)
+    + '<td>' + escapeFenceHtml(d.dept || '—') + '</td><td>' + escapeFenceHtml(d.share || '—') + '</td>'
+    + '<td>' + escapeFenceHtml(d.radius) + '</td>'
+    + '<td class="col-mono">' + escapeFenceHtml(d.lng) + '</td><td class="col-mono">' + escapeFenceHtml(d.lat) + '</td>'
+    + locCell
+    + '<td>' + escapeFenceHtml(d.prov || '—') + '</td><td>' + escapeFenceHtml(d.city || '—') + '</td><td>' + escapeFenceHtml(d.dist || '—') + '</td>'
+    + '<td>' + escapeFenceHtml(d.remark || '—') + '</td>'
+    + '<td>' + (d.openStatus === '未开通' ? '<span class="badge badge-warning">未开通</span>' : escapeFenceHtml(d.openStatus || '—')) + '</td>'
+    + '<td>' + escapeFenceHtml(d.account || '—') + '</td>'
+    + '<td>' + escapeFenceHtml(d.modifier || '—') + '</td>'
+    + '<td class="col-time">' + escapeFenceHtml(d.modifyTime || '—') + '</td>'
+    + enableCell
+    + '<td>' + escapeFenceHtml(d.settleBody || '—') + '</td>'
+    + '<td>' + escapeFenceHtml(d.loadTime) + '</td><td>' + escapeFenceHtml(d.unloadTime) + '</td>'
+    + '<td>' + escapeFenceHtml(d.emptyType || '—') + '</td>'
+    + '<td>' + escapeFenceHtml(d.allowance) + '</td>'
+    + '<td>' + escapeFenceHtml(d.highway || '—') + '</td>'
+    + fenceActionCell(d)
+    + '</tr>';
 }
 
 function buildFenceTableHTML() {
   var h = '<div class="table-section"><div class="table-toolbar"><div class="left">'
-  + '<button class="toolbar-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>推送设置</button>'
-  + '<button class="toolbar-btn" onclick="app.navigate(\'district-management\')">片区管理</button>'
-  + '<span class="toolbar-sep"></span><button class="toolbar-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>导出</button>'
-  + '<button class="toolbar-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>导入</button>'
-  + '<span class="toolbar-sep"></span><button class="toolbar-btn" onclick="location.reload()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>刷新</button>'
-  + '</div><div class="right"></div></div>'
-  + '<div class="table-wrap"><table class="data-table"><thead><tr>'
-  + '<th class="sticky-col col-seq">序号</th><th class="sticky-col">区域名称</th>'
-  + '<th>区域编号</th><th>所属片区</th><th>区域类型</th><th>类型</th><th>收/发货类型</th><th>所属部门</th><th>共享模式</th>'
-  + '<th>半径</th><th>经度</th><th>纬度</th><th>位置</th><th>所属省份</th>'
-  + '<th>所属城市</th><th>所属区</th><th>备注</th><th>开通状态</th><th>账号</th>'
-  + '<th>修改人</th><th>修改时间</th><th>启用状态</th><th>结算主体</th>'
-  + '<th>装货时长（h）</th><th>卸货时长（h）</th><th>空驶单类型</th><th>司机津贴</th><th>高速线路</th>'
-  + '<th class="sticky-col-r">操作</th>'
-  + '</tr></thead><tbody id="fenceTableBody"></tbody></table></div>'
+  + '<div id="fenceTypeTabs">' + fenceTypeTabHtml() + '</div>'
+  + '</div><div class="right">'
+  + '<button class="toolbar-btn" type="button" onclick="app.navigate(\'district-management\')">片区管理</button>'
+  + '<button class="toolbar-btn" type="button">导出</button>'
+  + '<button class="toolbar-btn" type="button">导入</button>'
+  + '<button class="toolbar-btn" type="button" onclick="preloadFences().then(applyFenceFilters)">刷新</button>'
+  + '</div></div>'
+  + '<div class="table-wrap"><table class="data-table" id="fenceDataTable"><thead id="fenceTableHead"></thead><tbody id="fenceTableBody"></tbody></table></div>'
   + '<div class="pagination"><div class="pagination-info">共 <span id="fenceTotalCount">0</span> 条，第 <span id="fenceRangeFrom">1</span>-<span id="fenceRangeTo">20</span> 条，<span id="fencePageSize">20</span>条/页</div>'
   + '<div class="page-size"><span>每页</span><select id="fencePageSizeSelect" onchange="changeFencePageSize(this.value)"><option value="10">10</option><option value="20" selected>20</option><option value="50">50</option></select><span>条</span></div>'
   + '<div class="pagination-controls" id="fencePaginationControls"></div></div></div>';
@@ -207,41 +395,21 @@ function buildFenceTable() {
   var end = Math.min(start + fencePageSize, total);
   var pageRows = filteredFenceData.slice(start, end);
 
+  var thead = document.getElementById('fenceTableHead');
   var tbody = document.getElementById('fenceTableBody');
   if (!tbody) return;
+  var colCount = 31;
+  if (thead) {
+    thead.innerHTML = '<tr><th class="sticky-col col-seq">序号</th><th class="sticky-col">围栏名称</th><th>围栏编号</th><th>所属片区</th><th>区域类型</th><th>类型</th><th>收/发货类型</th><th>所属区域围栏</th><th>下属点数</th><th>所属部门</th><th>共享模式</th><th>半径</th><th>经度</th><th>纬度</th><th>位置</th><th>所属省份</th><th>所属城市</th><th>所属区</th><th>备注</th><th>开通状态</th><th>账号</th><th>修改人</th><th>修改时间</th><th>启用状态</th><th>结算主体</th><th>装货时长（h）</th><th>卸货时长（h）</th><th>空驶单类型</th><th>司机津贴</th><th>高速线路</th><th class="sticky-col-r">操作</th></tr>';
+  }
+  var tabs = document.getElementById('fenceTypeTabs');
+  if (tabs) tabs.innerHTML = fenceTypeTabHtml();
   var html = '';
   for (var i = 0; i < pageRows.length; i++) {
-    var d = pageRows[i];
-    var seq = start + i + 1;
-    var owning = findOwningDistrict(d.code);
-    var owningCell = owning ? '<td><span class="tooltip" title="' + owning.name + '（' + owning.type + '）">' + owning.name + '</span></td>' : '<td>—</td>';
-    html += '<tr>'
-    + '<td class="sticky-col col-seq">' + seq + '</td>'
-    + '<td class="sticky-col" style="font-weight:500;">' + d.name + '</td>'
-    + '<td class="col-mono">' + d.code + '</td>' + owningCell + '<td>' + d.type + '</td><td>' + d.cat + '</td><td>' + d.ioType + '</td>'
-    + '<td>' + d.dept + '</td><td>' + d.share + '</td>'
-    + '<td>' + d.radius + '</td>'
-    + '<td class="col-mono">' + d.lng + '</td><td class="col-mono">' + d.lat + '</td>'
-    + '<td><span class="tooltip" title="' + d.location + '">' + d.location + '</span></td>'
-    + '<td>' + d.prov + '</td>'
-    + '<td>' + d.city + '</td><td>' + d.dist + '</td>'
-    + '<td>' + (d.remark || '—') + '</td>'
-    + '<td>' + (d.openStatus === '未开通' ? '<span class="badge badge-warning">●未开通</span>' : d.openStatus) + '</td>'
-    + '<td>' + d.account + '</td>'
-    + '<td>' + d.modifier + '</td>'
-    + '<td class="col-time">' + d.modifyTime + '</td>'
-    + '<td>' + d.enableStatus + '</td>'
-    + '<td>' + (d.settleBody || '—') + '</td>'
-    + '<td>' + d.loadTime + '</td>'
-    + '<td>' + d.unloadTime + '</td>'
-    + '<td>' + (d.emptyType || '—') + '</td>'
-    + '<td>' + d.allowance + '</td>'
-    + '<td>' + (d.highway || '—') + '</td>'
-    + '<td class="sticky-col-r"><a href="javascript:void(0)" class="link" onclick="openFenceEdit(\'edit\',\'' + d.code + '\')">修改</a><span style="color:var(--c-border-d);margin:0 4px;">|</span><a href="javascript:void(0)" class="btn-danger-text" onclick="deleteFence(\'' + d.code + '\',\'' + d.name + '\')">删除</a></td>'
-    + '</tr>';
+    html += renderFenceRow(pageRows[i], start + i + 1);
   }
   if (pageRows.length === 0) {
-    html = '<tr><td class="empty-row" colspan="29" style="text-align:center;color:var(--c-text-3);padding:32px 0;">暂无匹配的电子围栏数据</td></tr>';
+    html = '<tr><td class="empty-row" colspan="' + colCount + '" style="text-align:center;color:var(--c-text-3);padding:32px 0;">暂无匹配的电子围栏数据</td></tr>';
   }
   tbody.innerHTML = html;
 
@@ -305,8 +473,32 @@ function deleteFence(code, name) {
   if (!confirm('确定要删除围栏 "' + name + '（' + code + '）" 吗？\n此操作将同步到后端并永久删除。')) return;
   fetch('/api/fences/' + encodeURIComponent(code), { method: 'DELETE' })
     .then(function(r){ return r.json(); })
-    .then(function(){ preloadFences(); })
+    .then(function(){ return preloadFences(); })
+    .then(function(){ applyFenceFilters(); })
     .catch(function(e){ alert('删除失败：' + e.message); });
+}
+
+function toggleFenceEnable(code) {
+  var fences = window.__fences || fenceData;
+  var current = null;
+  for (var i = 0; i < fences.length; i++) {
+    if (fences[i].code === code) { current = fences[i]; break; }
+  }
+  if (!current) return;
+  var next = current.enableStatus === '启用' ? '停用' : '启用';
+  fetch('/api/fences/' + encodeURIComponent(code), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enableStatus: next })
+  })
+    .then(function (r) { return r.json(); })
+    .then(function () { return preloadFences(); })
+    .then(function () {
+      applyFenceFilters();
+      if (typeof window.refreshAreaPointsModal === 'function') window.refreshAreaPointsModal();
+      if (typeof showAppToast === 'function') showAppToast('「' + current.name + '」已' + next + '，历史运单不受影响。');
+    })
+    .catch(function (e) { alert('更新失败：' + e.message); });
 }
 
 /* ===================== 片区管理（对齐现网 pieceManage 列表交互） ===================== */
@@ -317,7 +509,6 @@ var districtData = [
 var filteredDistrictData = districtData.slice();
 var districtEditingId = '';
 var districtSeededFromFences = false;
-var districtSelected = {};
 
 function districtTypeTag(type) {
   if (type === '开始片区') {
@@ -477,9 +668,6 @@ function districtFenceToggle(code, checked) {
   renderDistrictFencePicker();
 }
 
-function districtSelectedIds() {
-  return Object.keys(districtSelected).filter(function(id) { return districtSelected[id]; });
-}
 function districtNow() {
   var d = new Date();
   var p = function(n) { return n < 10 ? '0' + n : '' + n; };
@@ -499,7 +687,6 @@ app.register('district-management', function() {
 }, ['district-management']);
 
 app.pages['district-management'].onRender = function() {
-  districtSelected = {};
   var render = function() {
     seedDistrictFencesFromPool();
     filteredDistrictData = districtData.slice();
@@ -518,14 +705,7 @@ function buildDistrictFilterHTML() {
 
 function buildDistrictTableHTML() {
   return '<div class="table-section district-table-section">'
-  + '<div class="table-toolbar district-toolbar"><div class="left district-toolbar-hint">勾选后可批量操作</div><div class="right district-icon-actions">'
-  + '<button class="btn btn-default btn-compact" onclick="districtToolbarLog()">查看日志</button>'
-  + '<button class="btn btn-default btn-compact" onclick="districtToolbarEdit()">批量编辑</button>'
-  + '<button class="btn btn-default btn-compact" onclick="districtToolbarExport()">导出列表</button>'
-  + '<button class="btn btn-default btn-compact btn-danger-text" onclick="districtToolbarDelete()">删除</button>'
-  + '</div></div>'
   + '<div class="table-wrap"><table class="data-table district-table"><thead><tr>'
-  + '<th class="col-check"><input type="checkbox" id="districtHeadCheck" onclick="toggleDistrictSelectAll(this.checked)" aria-label="选择全部片区"></th>'
   + '<th class="col-seq">序号</th><th>片区名称</th><th>片区类型</th><th>关联围栏地址</th><th>备注</th><th>修改人</th><th>修改时间</th><th class="sticky-col-r">操作</th>'
   + '</tr></thead><tbody id="districtTableBody"></tbody></table></div>'
   + '<div class="pagination"><div class="pagination-info">共 <span id="districtTotalCount">0</span> 条</div>'
@@ -554,30 +734,11 @@ function resetDistrictFilters() {
   renderDistrictTable();
 }
 
-function toggleDistrictSelectAll(checked) {
-  filteredDistrictData.forEach(function(d) { districtSelected[d.id] = !!checked; });
-  renderDistrictTable();
-}
-
-function toggleDistrictRow(id, checked) {
-  districtSelected[id] = !!checked;
-  var head = document.getElementById('districtHeadCheck');
-  if (head) {
-    var ids = filteredDistrictData.map(function(d) { return d.id; });
-    var all = ids.length > 0 && ids.every(function(id) { return districtSelected[id]; });
-    var some = ids.some(function(id) { return districtSelected[id]; });
-    head.checked = all;
-    head.indeterminate = some && !all;
-  }
-}
-
 function renderDistrictTable() {
   var body = document.getElementById('districtTableBody');
   if (!body) return;
   body.innerHTML = filteredDistrictData.map(function(d, index) {
-    var checked = districtSelected[d.id] ? ' checked' : '';
     return '<tr>'
-      + '<td class="col-check"><input type="checkbox" onclick="toggleDistrictRow(\'' + d.id + '\', this.checked)"' + checked + '></td>'
       + '<td class="col-seq">' + (index + 1) + '</td>'
       + '<td class="district-name">' + d.name + '</td>'
       + '<td>' + districtTypeTag(d.type || '') + '</td>'
@@ -587,74 +748,19 @@ function renderDistrictTable() {
       + '<td class="col-time">' + (d.updated || '—') + '</td>'
       + '<td class="sticky-col-r"><a class="link" href="javascript:void(0)" onclick="openDistrictModal(\'' + d.id + '\')">编辑</a><span class="district-action-sep">|</span><a class="link btn-danger-text" href="javascript:void(0)" onclick="deleteDistrict(\'' + d.id + '\')">删除</a></td>'
       + '</tr>';
-  }).join('') || '<tr><td colspan="9" class="district-empty">暂无片区数据，点击右上角「+」新增</td></tr>';
+  }).join('') || '<tr><td colspan="8" class="district-empty">暂无片区数据，点击右上角「+」新增</td></tr>';
   var total = document.getElementById('districtTotalCount'); if (total) total.textContent = filteredDistrictData.length;
   var overview = document.getElementById('districtOverview');
   if (overview) {
     var fenceCount = districtData.reduce(function(total, d) { return total + ((d.fenceCodes || []).length); }, 0);
     overview.textContent = '共 ' + districtData.length + ' 个片区，已归集 ' + fenceCount + ' 个围栏；当前展示 ' + filteredDistrictData.length + ' 条结果';
   }
-  var head = document.getElementById('districtHeadCheck');
-  if (head) {
-    var ids = filteredDistrictData.map(function(d) { return d.id; });
-    var all = ids.length > 0 && ids.every(function(id) { return districtSelected[id]; });
-    var some = ids.some(function(id) { return districtSelected[id]; });
-    head.checked = all;
-    head.indeterminate = some && !all;
-  }
-}
-
-function districtToolbarLog() {
-  var ids = districtSelectedIds();
-  if (ids.length !== 1) { alert('请勾选一条片区查看日志'); return; }
-  var item = districtData.find(function(d) { return d.id === ids[0]; });
-  if (!item) return;
-  var logs = item.logs || [
-    { time: item.updated || districtNow(), user: item.owner || '李调度', action: '修改', detail: '更新片区信息' },
-    { time: '2026-07-15 09:20:00', user: item.owner || '李调度', action: '新增', detail: '创建片区「' + item.name + '」' }
-  ];
-  var rows = logs.map(function(l, i) {
-    return '<tr><td class="col-seq">' + (i + 1) + '</td><td class="col-time">' + l.time + '</td><td>' + l.user + '</td><td>' + l.action + '</td><td>' + l.detail + '</td></tr>';
-  }).join('');
-  var overlay = document.getElementById('districtLogModal');
-  if (overlay) overlay.parentNode.removeChild(overlay);
-  document.body.insertAdjacentHTML('beforeend',
-    '<div class="modal-overlay show" id="districtLogModal">'
-    + '<div class="modal district-modal" style="width:720px;">'
-    + '<div class="modal-header"><div class="modal-title">操作日志 · ' + item.name + '（' + item.id + '）</div>'
-    + '<button class="modal-close" onclick="closeDistrictLogModal()" aria-label="关闭">&times;</button></div>'
-    + '<div class="modal-body"><div class="table-wrap"><table class="data-table"><thead><tr><th class="col-seq">序号</th><th>操作时间</th><th>操作人</th><th>操作类型</th><th>操作内容</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>'
-    + '<div class="modal-footer"><button class="btn btn-primary" onclick="closeDistrictLogModal()">关闭</button></div>'
-    + '</div></div>');
-}
-function closeDistrictLogModal() {
-  var m = document.getElementById('districtLogModal');
-  if (m) m.parentNode.removeChild(m);
-}
-function districtToolbarEdit() {
-  var ids = districtSelectedIds();
-  if (ids.length !== 1) { alert('请勾选一条片区进行编辑'); return; }
-  openDistrictModal(ids[0]);
-}
-function districtToolbarDelete() {
-  var ids = districtSelectedIds();
-  if (!ids.length) { alert('请先勾选要删除的片区'); return; }
-  if (!confirm('确定删除选中的 ' + ids.length + ' 个片区吗？')) return;
-  districtData = districtData.filter(function(d) { return ids.indexOf(d.id) < 0; });
-  ids.forEach(function(id) { delete districtSelected[id]; });
-  saveDistricts();
-  applyDistrictFilters();
-  showDistrictToast('已删除 ' + ids.length + ' 个片区');
-}
-function districtToolbarExport() {
-  exportTableAsCsv('.district-table', '片区管理列表');
 }
 function deleteDistrict(id) {
   var item = districtData.find(function(d) { return d.id === id; });
   if (!item) return;
   if (!confirm('确定删除片区「' + item.name + '」吗？')) return;
   districtData = districtData.filter(function(d) { return d.id !== id; });
-  delete districtSelected[id];
   saveDistricts();
   applyDistrictFilters();
   showDistrictToast('已删除「' + item.name + '」');
@@ -749,13 +855,14 @@ function showDistrictToast(message) {
   showAppToast(message);
 }
 
-function showAppToast(message) {
+function showAppToast(message, type) {
   var toast = document.getElementById('appToast');
   if (!toast) { document.body.insertAdjacentHTML('beforeend', '<div class="app-toast" id="appToast"><span id="appToastText"></span></div>'); toast = document.getElementById('appToast'); }
   document.getElementById('appToastText').textContent = message;
+  toast.classList.toggle('is-error', type === 'error');
   toast.classList.add('show');
   window.clearTimeout(window._appToastTimer);
-  window._appToastTimer = window.setTimeout(function() { toast.classList.remove('show'); }, 2600);
+  window._appToastTimer = window.setTimeout(function() { toast.classList.remove('show'); }, type === 'error' ? 3200 : 2600);
 }
 
 function exportTableAsCsv(selector, filename) {
@@ -782,13 +889,19 @@ function exportTableAsCsv(selector, filename) {
 /* ===================== SCRIPT BLOCK 3 (lines 924-1276) ===================== */
 app.register('fence-edit', function() {
   var isEdit = window._fenceEditMode === 'edit';
-  var code = window._fenceEditCode || '';
-  var title = isEdit ? '编辑电子围栏' : '新增电子围栏';
-  var modeTag = isEdit ? ' (修改模式 - 变更将生成新配置版本)' : '';
+  var createKind = window._fenceCreateKind || '';
+  var title = isEdit ? '编辑电子围栏' : (createKind === 'area' ? '新增区域电子围栏' : (createKind === 'point' ? '新增点电子围栏' : '新增电子围栏'));
+  var hint = isEdit
+    ? '修改档案字段后保存。点电子围栏的所属区域围栏为选填。'
+    : (createKind === 'area'
+      ? '区域电子围栏画的是一块范围，作为区域派单的卸货端。保存后可在该区域下维护点围栏，不维护也可以先去定路线并配价。'
+      : (createKind === 'point'
+        ? '点电子围栏画的是一个位置。精确地址派单必用；也可选填所属区域围栏，供打卡命中与事后改点。不挂不挡精确派单，也不挡按区域路线创单。'
+        : '区域类型可选点、区域或行政区域。区域围栏用于区域派单卸货端；点围栏用于精确地址派单、打卡命中与事后改点，所属区域围栏选填。'));
+  var typeLocked = !isEdit && (createKind === 'area' || createKind === 'point');
+  var defaultType = createKind === 'area' ? 'region' : 'point';
 
   var html = ''
-  + '<div class="top-tabs">'
-  + '<div class="tab-item active">电子围栏</div></div>'
   + '<div class="content-split">'
 
   // Map
@@ -802,17 +915,19 @@ app.register('fence-edit', function() {
   + '<div class="map-footer"><span>围栏中心坐标</span><span class="coord-display">Lng: <strong id="fenceDisplayLng">—</strong> &nbsp;Lat: <strong id="fenceDisplayLat">—</strong></span><span>半径: <strong id="fenceDisplayRadius">—</strong>m</span></div></div>'
 
   // Form
-  + '<div class="form-panel"><div class="form-header"><div class="form-title">' + title + '<span style="font-size:12px;font-weight:400;color:var(--c-text-3);margin-left:8px;">' + modeTag + '</span></div></div>'
+  + '<div class="form-panel"><div class="form-header"><div class="form-title">' + title + '</div></div>'
   + '<div class="form-body">'
+  + '<p class="detail-section-sub fence-form-hint">' + hint + '</p>'
 
   // Section 1
   + '<div class="form-section"><div class="form-section-title"><span class="section-icon"></span>基础信息</div>'
   + '<div class="form-grid col-2">'
   + fi('围栏名称','<input class="form-control-text" id="fenceName" type="text" placeholder="请输入围栏名称" maxlength="50">',true)
   + fi('围栏编码','<input class="form-control-text" id="fenceCode" type="text" placeholder="自动生成或手动输入" maxlength="20">',true)
-  + fi('区域类型','<select class="form-control-text" id="areaType" onchange="onAreaTypeChange()"><option value="point">点</option><option value="area">面</option></select>',true)
+  + fi('区域类型','<select class="form-control-text" id="areaType" onchange="onAreaTypeChange()"' + (typeLocked ? ' disabled' : '') + '><option value="point"' + (defaultType === 'point' ? ' selected' : '') + '>点</option><option value="region"' + (defaultType === 'region' ? ' selected' : '') + '>区域</option><option value="administrative">行政区域</option></select>',true)
+  + '<div class="form-item" id="parentAreaItem"><label class="form-label">所属区域围栏</label><select class="form-control-text" id="parentArea"><option value="">不关联（精确地址点围栏，不挡按区域路线创单）</option></select><span class="fence-field-hint">选填。挂到区域电子围栏后，司机打卡与运单改点时可选用。</span></div>'
   + fi('类型','<select class="form-control-text" id="fCat"><option>物流点</option><option>仓库</option><option>中转站</option></select>')
-  + fi('收/发货类型','<select class="form-control-text" id="fIoType"><option>发货</option><option>收货</option><option>收发货</option></select>')
+  + fi('收/发货类型','<select class="form-control-text" id="fIoType"><option>发货区域</option><option>收货区域</option><option>收发货</option></select>')
   + fi('所属部门','<select class="form-control-text" id="orgSelect"><option>云南运输事业部</option><option>玉溪分公司</option><option>昆明分公司</option></select>',true)
   + fi('共享模式','<select class="form-control-text" id="fShare"><option>专属</option><option>共享</option></select>')
   + fi('结算主体','<select class="form-control-text" id="fSettle"><option>云南创维新能源汽车</option></select>')
@@ -833,6 +948,7 @@ app.register('fence-edit', function() {
 
   // Section 3: 运营参数（趟次角色已迁移至片区管理，围栏仅维护地址）
   + '<div class="form-section"><div class="form-section-title"><span class="section-icon"></span>运营参数</div>'
+  + '<p class="detail-section-sub fence-form-hint">时效与空驶等运营口径，不参与计费。围栏档案不带价。</p>'
   + '<div class="form-grid col-2">'
   + fi('装货时长（h）','<input class="form-control-text" id="fLoadTime" type="number" value="1" min="0" step="0.5">')
   + fi('卸货时长（h）','<input class="form-control-text" id="fUnloadTime" type="number" value="1" min="0" step="0.5">')
@@ -846,7 +962,7 @@ app.register('fence-edit', function() {
 
   + '</div>'
 
-  + '<div class="form-footer"><button class="btn btn-default" onclick="app.navigate(\'fence-list\')">取消</button>'
+  + '<div class="form-footer"><button class="btn btn-default" onclick="cancelFenceForm()">取消</button>'
   + '<button class="btn btn-primary" onclick="submitFenceForm(' + isEdit + ')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>保存</button></div>'
   + '</div></div>';
 
@@ -859,6 +975,7 @@ app.register('fence-edit', function() {
 
 // Fence edit post-render hook
 app.pages['fence-edit'].onRender = function() {
+  fillParentAreaSelect((window._fenceParentAreaPreset || '').trim());
   var isEdit = window._fenceEditMode === 'edit';
   if (isEdit) {
     var code = window._fenceEditCode;
@@ -870,12 +987,72 @@ app.pages['fence-edit'].onRender = function() {
     }
   } else {
     setTimeout(function() {
-      var now = new Date(); now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-      var eti = document.getElementById('effectiveTime'); if (eti) eti.value = now.toISOString().slice(0, 16);
+      suggestFenceCode();
+      applyFenceCreatePreset();
       setTimeout(updateFenceMapCircle, 200);
     }, 0);
   }
 };
+
+function areaFenceNames() {
+  var names = [];
+  (window.__fences || []).forEach(function (fence) {
+    if (fence.type === '区域' && fence.name && names.indexOf(fence.name) < 0) names.push(fence.name);
+  });
+  return names;
+}
+
+function fillParentAreaSelect(selected) {
+  var sel = document.getElementById('parentArea');
+  if (!sel) return;
+  var names = areaFenceNames();
+  sel.innerHTML = '<option value="">不关联（精确地址点围栏，不挡按区域路线创单）</option>' + names.map(function (name) {
+    return '<option value="' + name.replace(/"/g, '&quot;') + '"' + (name === selected ? ' selected' : '') + '>' + name + '</option>';
+  }).join('');
+  if (selected) setSelectValue(sel, selected);
+}
+
+function suggestFenceCode() {
+  var el = document.getElementById('fenceCode');
+  if (!el || el.value.trim()) return;
+  var used = {};
+  (window.__fences || []).forEach(function (fence) { used[fence.code] = true; });
+  var next = (window.__fences || []).length + 1;
+  var code = 'F-' + String(next).padStart(7, '0');
+  while (used[code]) { next += 1; code = 'F-' + String(next).padStart(7, '0'); }
+  el.value = code;
+}
+
+function applyFenceCreatePreset() {
+  var kind = window._fenceCreateKind || 'point';
+  var at = document.getElementById('areaType');
+  if (at) at.value = kind === 'area' ? 'region' : 'point';
+  var radius = document.getElementById('fenceRadiusInput');
+  if (kind === 'point') {
+    if (radius && (!radius.value || radius.value === '500')) radius.value = '150';
+  } else if (radius && (!radius.value || radius.value === '150')) {
+    radius.value = '800';
+  }
+  if (window._fenceIoTypePreset) setSelectValue(document.getElementById('fIoType'), window._fenceIoTypePreset);
+  else if (window._fencePointPreset) setSelectValue(document.getElementById('fIoType'), '收货区域');
+  fillParentAreaSelect((window._fenceParentAreaPreset || '').trim());
+  onAreaTypeChange();
+}
+
+function applySecondaryPointPreset() {
+  window._fenceCreateKind = 'point';
+  applyFenceCreatePreset();
+}
+
+function cancelFenceForm() {
+  var back = window._fenceReturnPage || 'fence-list';
+  window._fenceReturnPage = '';
+  window._fencePointPreset = false;
+  window._fenceParentAreaPreset = '';
+  window._fenceIoTypePreset = '';
+  window._fenceCreateKind = '';
+  app.navigate(back);
+}
 
 // Fence form JS
 var fenceCenter = { lng: 102.478, lat: 24.919 }, fenceRadius = 500;
@@ -928,7 +1105,24 @@ function updateFenceMapCircle() {
 function zoomIn() { fenceRadius = Math.max(50, fenceRadius - 100); var r = document.getElementById('fenceRadiusInput'); if (r) r.value = fenceRadius; updateFenceMapCircle(); }
 function zoomOut() { fenceRadius = Math.min(5000, fenceRadius + 100); var r = document.getElementById('fenceRadiusInput'); if (r) r.value = fenceRadius; updateFenceMapCircle(); }
 
-function onAreaTypeChange() { /* 区域类型切换：围栏不再配置趟次角色 */ }
+function onAreaTypeChange() {
+  var at = document.getElementById('areaType');
+  var wrap = document.getElementById('parentAreaItem');
+  var isPoint = !at || at.value === 'point';
+  if (wrap) wrap.style.display = isPoint ? '' : 'none';
+  var hint = document.querySelector('.map-title-hint');
+  if (hint) {
+    hint.textContent = isPoint
+      ? '点围栏请核验坐标与较小半径，供打卡命中'
+      : (at && at.value === 'region' ? '区域围栏请核验覆盖范围，作为区域派单卸货端' : '保存前请核验地址、经纬度与半径');
+  }
+  var radius = document.getElementById('fenceRadiusInput');
+  if (radius && window._fenceEditMode !== 'edit') {
+    if (isPoint && (radius.value === '800' || radius.value === '500')) radius.value = '150';
+    if (!isPoint && at && at.value === 'region' && (radius.value === '150' || radius.value === '500')) radius.value = '800';
+    if (typeof updateFenceMapCircle === 'function') updateFenceMapCircle();
+  }
+}
 
 var cityMap = { '云南省': ['昆明市', '玉溪市', '曲靖市', '红河州', '大理州'] };
 var districtMap = { '昆明市': ['安宁市', '五华区', '盘龙区', '官渡区', '西山区'], '玉溪市': ['红塔区', '江川区', '通海县', '华宁县', '易门县', '峨山县', '新平县', '元江县'] };
@@ -1003,7 +1197,9 @@ function populateFenceForm(f) {
   set('fAccount', f.account);
 
   var at = document.getElementById('areaType');
-  if (at) at.value = (f.type === '面') ? 'area' : 'point';
+  if (at) at.value = f.type === '行政区域' ? 'administrative' : ((f.type === '区域' || f.type === '面') ? 'region' : 'point');
+  fillParentAreaSelect(f.parentArea || '');
+  onAreaTypeChange();
 
   setSelectValue(document.getElementById('fCat'), f.cat);
   setSelectValue(document.getElementById('fIoType'), f.ioType);
@@ -1032,14 +1228,17 @@ function submitFenceForm(isEdit) {
   if (!code) { alert('请输入围栏编码'); return; }
   var areaTypeEl = document.getElementById('areaType');
   var areaTypeVal = areaTypeEl ? areaTypeEl.value : 'point';
-  var typeMap = { point: '点', area: '面' };
+  var typeMap = { point: '点', region: '区域', administrative: '行政区域' };
+  var fenceType = typeMap[areaTypeVal] || '点';
+  var parentArea = get('parentArea');
+  var ioType = get('fIoType');
 
   var payload = {
     name: name,
     code: code,
-    type: typeMap[areaTypeVal] || '点',
+    type: fenceType,
     cat: get('fCat'),
-    ioType: get('fIoType'),
+    ioType: ioType,
     dept: get('orgSelect'),
     share: get('fShare'),
     role: '不参与趟次',
@@ -1059,7 +1258,8 @@ function submitFenceForm(isEdit) {
     unloadTime: parseFloat(get('fUnloadTime')) || 0,
     emptyType: get('fEmptyType'),
     allowance: parseAllowance(get('fAllowance')),
-    highway: get('fHighway')
+    highway: get('fHighway'),
+    parentArea: fenceType === '点' ? parentArea : ''
   };
 
   var urlCode = isEdit ? window._fenceEditCode : code;
@@ -1069,9 +1269,31 @@ function submitFenceForm(isEdit) {
   fetch(url, { method: method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
     .then(function(r){ return r.json(); })
     .then(function(){
-      preloadFences();
-      alert((isEdit ? '修改' : '新增') + '成功！围栏「' + name + '」已' + (isEdit ? '更新' : '保存') + '并同步到后端。');
-      app.navigate('fence-list');
+      return preloadFences();
+    })
+    .then(function(){
+      var back = window._fenceReturnPage || 'fence-list';
+      window._fenceReturnPage = '';
+      window._fencePointPreset = false;
+      window._fenceParentAreaPreset = '';
+      window._fenceIoTypePreset = '';
+      window._fenceCreateKind = '';
+      if (back === 'segment-route-edit') window.__srPendingFenceName = name;
+      if (back === 'waybill-edit') window.__wbPendingFenceName = name;
+      if (back === 'area-billing-ops' || back === 'weigh-point-audit' || back === 'task-order-management') window.__opsPendingFenceName = name;
+      if (!isEdit && fenceType === '区域' && back === 'fence-list') window.__reopenAreaPointsModal = name;
+      if (typeof showAppToast === 'function') {
+        if (back === 'waybill-edit') {
+          showAppToast((isEdit ? '已更新' : '已保存') + '围栏「' + name + '」，正在返回运单修改。');
+        } else if (back === 'area-billing-ops' || back === 'task-order-management' || (back === 'weigh-point-audit' && window.__opsReselectCode)) {
+          showAppToast((isEdit ? '已更新' : '已保存') + '围栏「' + name + '」，正在返回重新选择卸货点。');
+        } else {
+          showAppToast((isEdit ? '已更新' : '已保存') + '围栏「' + name + '」' + (fenceType === '区域' ? '。可继续在该区域下维护点围栏，或不维护直接去定路线并配价。' : fenceType === '点' ? '。下一步去定分段线路并配置计费规则。' : '。'));
+        }
+      } else {
+        alert((isEdit ? '修改' : '新增') + '成功！围栏「' + name + '」已' + (isEdit ? '更新' : '保存') + '。');
+      }
+      app.navigate(back);
     })
     .catch(function(e){ alert('保存失败：' + e.message); });
 }
@@ -1646,7 +1868,7 @@ function buildCircleExportWorkbook(sheets) {
   files.push({ name: '_rels/.rels', data: encoder.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/></Relationships>') });
   files.push({ name: 'xl/workbook.xml', data: encoder.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>' + workbookSheets.join('') + '</sheets></workbook>') });
   files.push({ name: 'xl/_rels/workbook.xml.rels', data: encoder.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + workbookRels.join('') + '</Relationships>') });
-  files.push({ name: 'xl/styles.xml', data: encoder.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="10"/><name val="Arial"/></font><font><b/><color rgb="FFFFFFFF"/><sz val="10"/><name val="Arial"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF2563EB"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFD1D5DB"/></left><right style="thin"><color rgb="FFD1D5DB"/></right><top style="thin"><color rgb="FFD1D5DB"/></top><bottom style="thin"><color rgb="FFD1D5DB"/></bottom><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1" xfId="0"><alignment horizontal="center" vertical="center" wrapText="1"/></xf></cellXfs></styleSheet>') });
+  files.push({ name: 'xl/styles.xml', data: encoder.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="3"><font><sz val="10"/><name val="Arial"/></font><font><b/><color rgb="FFFFFFFF"/><sz val="10"/><name val="Arial"/></font><font><b/><color rgb="FF64748B"/><sz val="10"/><name val="Arial"/></font></fonts><fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF2563EB"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE2E8F0"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFD1D5DB"/></left><right style="thin"><color rgb="FFD1D5DB"/></right><top style="thin"><color rgb="FFD1D5DB"/></top><bottom style="thin"><color rgb="FFD1D5DB"/></bottom><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1" xfId="0"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="2" fillId="3" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1" xfId="0"><alignment horizontal="center" vertical="center" wrapText="1"/></xf></cellXfs></styleSheet>') });
   files.push({ name: 'docProps/core.xml', data: encoder.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:creator>TMS运输管理后台</dc:creator><dc:title>趟次统计报表</dc:title><dcterms:created xsi:type="dcterms:W3CDTF">' + new Date().toISOString() + '</dcterms:created></cp:coreProperties>') });
   files.push({ name: 'docProps/app.xml', data: encoder.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"><Application>TMS运输管理后台</Application></Properties>') });
   return new Blob([zipCircleExportFiles(files)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -1659,7 +1881,17 @@ function buildCircleExportSheetXml(sheet) {
   var cols = (sheet.widths || []).map(function(width, index) { return '<col min="' + (index + 1) + '" max="' + (index + 1) + '" width="' + width + '" customWidth="1"/>'; }).join('');
   var body = rows.map(function(row, rowIndex) {
     var cells = row.map(function(value, columnIndex) {
-      return buildCircleExportCell(value, circleExcelColumnName(columnIndex + 1) + (rowIndex + 1), rowIndex === 0 ? 1 : 0);
+      var style = 0;
+      var cellValue = value;
+      if (value && typeof value === 'object' && !value.formula && (value.style != null || value.s != null || value.text != null || value.value != null)) {
+        style = value.style != null ? value.style : (value.s != null ? value.s : 0);
+        cellValue = value.value != null ? value.value : (value.text != null ? value.text : '');
+      } else if (rowIndex === 0) {
+        style = (sheet.headerStyles && sheet.headerStyles[columnIndex] != null)
+          ? sheet.headerStyles[columnIndex]
+          : 1;
+      }
+      return buildCircleExportCell(cellValue, circleExcelColumnName(columnIndex + 1) + (rowIndex + 1), style);
     }).join('');
     return '<row r="' + (rowIndex + 1) + '"' + (rowIndex === 0 ? ' ht="30" customHeight="1"' : '') + '>' + cells + '</row>';
   }).join('');
@@ -1669,7 +1901,10 @@ function buildCircleExportSheetXml(sheet) {
 }
 
 function buildCircleExportCell(value, ref, style) {
-  if (value === null || value === undefined || value === '') return '';
+  style = style || 0;
+  if (value === null || value === undefined || value === '') {
+    return style ? ('<c r="' + ref + '" s="' + style + '"/>') : '';
+  }
   if (value && typeof value === 'object' && value.formula) {
     return '<c r="' + ref + '" s="' + style + '"><f>' + escapeCircleXml(String(value.formula).replace(/^=/, '')) + '</f><v>' + Number(value.value || 0) + '</v></c>';
   }
@@ -2287,8 +2522,12 @@ function preloadFences() {
     .then(function(r){ return r.json(); })
     .then(function(list){
       window.__fences = list || [];
-      filteredFenceData = (window.__fences || []).slice();
-      if (document.getElementById('fenceTableBody') && typeof buildFenceTable === 'function') buildFenceTable();
+      if (document.getElementById('fenceTableBody') && typeof applyFenceFilters === 'function' && app.currentPage === 'fence-list') {
+        fillFenceParentFilterOptions();
+        applyFenceFilters();
+      } else {
+        filteredFenceData = (window.__fences || []).slice();
+      }
     })
     .catch(function(e){
       console.error('预加载围栏失败：', e);
@@ -2349,5 +2588,265 @@ function saveDistricts() {
     .catch(function(e){ console.error('保存片区失败：', e); });
 }
 
-Promise.all([preloadFences(), preloadTripSummaries(), preloadTripDetails(), preloadFareSettings(), preloadDistricts()])
+var filteredOrderData = [];
+var orderPage = 1;
+var orderPageSize = 20;
+function preloadOrders() {
+  return fetch('/api/orders')
+    .then(function(r){ return r.json(); })
+    .then(function(list){
+      window.__orders = list || [];
+      filteredOrderData = (window.__orders || []).slice();
+      if (document.getElementById('orderTableBody') && typeof buildOrderTable === 'function') buildOrderTable();
+    })
+    .catch(function(e){ console.error('预加载订单失败：', e); window.__orders = []; filteredOrderData = []; });
+}
+Promise.all([preloadFences(), preloadTripSummaries(), preloadTripDetails(), preloadFareSettings(), preloadDistricts(), preloadOrders()])
   .finally(function(){ app.init(); });
+
+/* ===================== 柔性卸货地 · 订单新增原型 =====================
+ */
+app.register('order-create', function() {
+  return ''
+  + '<div class="content-area page-standard order-create-page">'
+  + '<div class="breadcrumb"><a href="javascript:void(0)" onclick="app.navigate(\'order-list\')">订单管理</a><span class="sep">/</span><span class="current">新增订单</span></div>'
+  + '<div class="page-header"><div class="page-title">新增订单 <span class="sub">按合同与路线信息创建运输订单</span></div></div>'
+  + '<section class="order-form-shell">'
+  + '<div class="form-section">'
+  + '<div class="form-section-title"><span class="section-icon"></span>订单信息</div>'
+  + '<div class="form-grid order-standard-grid">'
+  + orderInline('订单号', '<div class="order-order-no"><input class="form-control-text" id="orderNo" value="Y202608141404" readonly><button type="button" class="order-link">复制已有订单</button></div>', true)
+  + orderInline('订单类型', '<select class="form-control-text" id="orderType"><option>销售单</option></select>')
+  + orderInline('客户', '<select class="form-control-text" id="orderCustomer"><option>创维零担客户</option></select>', true)
+  + orderInline('所属部门', '<select class="form-control-text" id="orderDept"><option>重卡生态</option></select>', true)
+  + orderInline('客户订单号', '<input class="form-control-text" id="orderCustomerNo" placeholder="请输入">')
+  + orderInline('关联合同', '<select class="form-control-text" id="orderContract"><option value="">请选择关联合同</option></select>', true)
+  + '</div>'
+  + '</div>'
+  + '<div class="form-section">'
+  + '<div class="form-section-title"><span class="section-icon"></span>收发货信息</div>'
+  + '<div class="form-grid order-standard-grid">'
+  + orderInline('分段线路', '<select class="form-control-text" id="orderRoute" required><option value="" selected>请选择分段线路</option></select>', true, '', 'order-new-row order-route-item')
+  + orderInline('发货区域', '<select class="form-control-text" id="orderShipRegion"><option value="">请先选择分段线路</option></select>', true)
+  + orderInline('发货地址', addressControl('选择线路后自动回填', '地址备注', 'orderShipAddress'), false, '', 'order-span-2')
+  + orderInline('要求起运时间', '<input class="form-control-text" id="orderShipTime" placeholder="要求起运时间">')
+  + orderInline('发货联系人', '<select class="form-control-text"><option>请选择</option></select>')
+  + orderInline('发货联系人电话', phoneControl('发货电话'))
+  + '<div class="order-form-divider"><span>收货信息</span></div>'
+  + orderInline('收货区域', '<select class="form-control-text" id="orderReceiveArea"><option value="" selected>请先选择分段线路</option></select>', true, 'orderReceiveAreaLabel')
+  + orderInline('收货地址', addressControl('选择线路后自动回填', '地址备注', 'orderReceiveAddress', 'orderReceiveNote'), false, 'orderReceiveAddressLabel', 'order-span-2')
+  + orderInline('要求送达时间', '<input class="form-control-text" id="orderDeliveryTime" value="2026-08-14 18:00:00">')
+  + orderInline('收货联系人', '<select class="form-control-text" id="orderReceiveContact"><option>请选择</option></select>')
+  + orderInline('收货联系人电话', phoneControl('请输入', 'orderReceivePhone'))
+  + orderInline('交付时间', '<div class="order-range"><input class="form-control-text" placeholder="交付开始时间"><span>至</span><input class="form-control-text" placeholder="交付结束时间"></div>', true)
+  + '</div></div>'
+  + '<div class="form-section order-goods-section"><div class="form-section-title"><span class="section-icon"></span>货物信息</div>'
+      + '<div class="table-wrap order-goods-table"><table class="data-table order-goods-data-table"><thead><tr><th>货物名称</th><th>总数量</th><th>总重量(t)</th><th>总体积(m³)</th><th>货物类型</th><th>包装类型</th><th>批次</th><th>货物备注</th><th>操作</th></tr></thead><tbody><tr><td><select class="form-control-text" id="orderGoodsName"><option>水泥</option><option>水渣-1</option><option>铁精粉</option><option>红砖</option></select></td><td><input class="form-control-text" id="orderGoodsQty" value="24"></td><td><input class="form-control-text" value="0" readonly></td><td><input class="form-control-text" value="0" readonly></td><td><input class="form-control-text" placeholder="货物类型"></td><td><input class="form-control-text" placeholder="包装类型"></td><td><input class="form-control-text" placeholder="请输入批次"></td><td><input class="form-control-text" placeholder="请输入货物备注"></td><td><button type="button" class="order-remove" aria-label="删除货物">×</button></td></tr></tbody></table></div><div class="order-goods-total">总数量 <b>24</b>，共 <b>0t</b>｜<b>0m³</b></div></div>'
+  + '<div class="form-section order-other-section"><div class="form-section-title"><span class="section-icon"></span>其他</div></div>'
+  + '<div class="form-footer order-submit-bar"><button class="btn btn-default" onclick="app.navigate(\'order-list\')">取消</button><button class="btn btn-primary" onclick="submitFlexibleOrder()">保存</button></div>'
+  + '</section></div>';
+  function orderInline(label, control, required, labelId, extraClass) { return '<label class="form-item order-form-item ' + (extraClass || '') + '"><span class="form-label"' + (labelId ? ' id="' + labelId + '"' : '') + '>' + (required ? '<i>*</i> ' : '') + label + '</span>' + control + '</label>'; }
+  function mapIcon() { return '<button type="button" class="order-map-btn" aria-label="从地图选择地址"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0z"/><circle cx="12" cy="10" r="2.5"/></svg></button>'; }
+  function addressControl(addressPlaceholder, notePlaceholder, addressId, noteId) { return '<div class="order-address-control"><input class="form-control-text"' + (addressId ? ' id="' + addressId + '"' : '') + ' placeholder="' + addressPlaceholder + '"><input class="form-control-text"' + (noteId ? ' id="' + noteId + '"' : '') + ' placeholder="' + notePlaceholder + '">' + mapIcon() + '</div>'; }
+  function phoneControl(placeholder, id) { return '<div class="order-phone-control"><input class="form-control-text"' + (id ? ' id="' + id + '"' : '') + ' placeholder="' + placeholder + '"><button type="button" class="order-add-btn" aria-label="新增联系人电话"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button></div>'; }
+}, ['order-create']);
+
+function setOrderDestinationMode(mode) {
+  window.__orderDestinationMode = mode === 'exact' ? 'exact' : 'area';
+  var areaLabel = document.getElementById('orderReceiveAreaLabel');
+  var addressLabel = document.getElementById('orderReceiveAddressLabel');
+  var address = document.getElementById('orderReceiveAddress');
+  var note = document.getElementById('orderReceiveNote');
+  var contact = document.getElementById('orderReceiveContact');
+  var phone = document.getElementById('orderReceivePhone');
+  if (areaLabel) {
+    areaLabel.innerHTML = mode === 'exact'
+      ? '<i>*</i> 收货区域'
+      : '<i>*</i> 卸货区域';
+  }
+  if (addressLabel) addressLabel.textContent = '收货地址';
+  if (address) {
+    address.disabled = false;
+    address.placeholder = '选择线路后自动回填';
+  }
+  if (note) note.disabled = false;
+  if (contact) contact.disabled = false;
+  if (phone) phone.disabled = false;
+}
+
+function submitFlexibleOrder() {
+  var getVal = function(id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; };
+  var routeId = getVal('orderRoute');
+  var packed = (window.__orderPricedRoutes || []).filter(function (item) { return item.route && item.route.id === routeId; })[0];
+  var mode = (packed && packed.route && packed.route.unloadKind === 'area') ? 'area' : (window.__orderDestinationMode || 'exact');
+  window.__orderDestinationMode = mode;
+  var order = {
+    id: getVal('orderNo') || ('Y' + Date.now()),
+    orderType: getVal('orderType') || '销售单',
+    customer: getVal('orderCustomer') || '—',
+    dept: getVal('orderDept') || '—',
+    customerOrderNo: getVal('orderCustomerNo'),
+    contract: getVal('orderContract') || '—',
+    shipRegion: getVal('orderShipRegion') || '—',
+    shipAddress: getVal('orderShipAddress'),
+    shipTime: getVal('orderShipTime'),
+    route: getVal('orderRoute') || '',
+    receiveRegion: getVal('orderReceiveArea') || '',
+    receiveAddress: getVal('orderReceiveAddress'),
+    receiveNote: getVal('orderReceiveNote'),
+    deliveryTime: getVal('orderDeliveryTime'),
+    goodsName: getVal('orderGoodsName') || '—',
+    goodsQty: getVal('orderGoodsQty') || '0',
+    destMode: mode,
+    fareMode: mode === 'exact' ? 'auto' : 'pending',
+    status: mode === 'exact' ? '已创建' : '待拆分运单'
+  };
+  fetch('/api/orders', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(order)
+  })
+    .then(function(r) { if (!r.ok) return r.json().then(function(err) { throw new Error(err.error || '保存失败'); }); return r.json(); })
+    .then(function() {
+      return preloadOrders();
+    })
+    .then(function() { app.navigate('order-list'); showAppToast('订单已保存，已加入订单列表。'); })
+    .catch(function(e) { showAppToast('保存失败：' + (e && e.message ? e.message : e)); });
+}
+
+/* ===================== 订单列表 ===================== */
+app.register('order-list', function() {
+  return ''
+  + '<div class="top-tabs"><div class="tab-item active">订单列表</div></div>'
+  + '<div class="content-area">'
+  + '<div class="breadcrumb"><a href="javascript:void(0)" onclick="app.navigate(\'order-list\')">订单管理</a><span class="sep">/</span><span class="current">订单列表</span></div>'
+  + '<div class="page-header"><div class="page-title">订单列表 <span class="sub">运输订单全量查询</span></div>'
+  + '<div class="page-actions"><button class="btn btn-primary" onclick="app.navigate(\'order-create\')">+ 新增订单</button></div></div>'
+  + buildOrderFilterHTML() + buildOrderTableHTML()
+  + '</div>';
+}, ['order-list']);
+app.pages['order-list'].onRender = function() { filteredOrderData = (window.__orders || []).slice(); orderPage = 1; buildOrderTable(); preloadOrders(); };
+
+function buildOrderFilterHTML() {
+  return '<div class="filter-panel" id="orderFilterPanel"><div class="filter-row">'
+  + '<div class="filter-item"><label class="filter-label">关键词</label><input class="filter-control" id="orderKeyword" type="text" placeholder="订单号/客户/合同"></div>'
+  + '<div class="filter-item"><label class="filter-label">状态</label><select class="filter-control" id="orderStatusFilter"><option>全部</option><option>待锁价</option><option>已锁价</option><option>已创建</option></select></div>'
+  + '</div><div class="filter-actions"><button class="btn btn-default" onclick="resetOrderFilters()">重置</button><button class="btn btn-primary" onclick="applyOrderFilters()">查询</button></div></div>';
+}
+function buildOrderTableHTML() {
+  return '<div class="table-section"><div class="table-toolbar"><div class="left">'
+  + '<button class="toolbar-btn" onclick="location.reload()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>刷新</button>'
+  + '</div><div class="right"></div></div>'
+  + '<div class="table-wrap"><table class="data-table"><thead><tr>'
+  + '<th class="col-seq">序号</th><th>订单号</th><th>订单类型</th><th>客户</th><th>所属部门</th><th>收货区域</th><th>收货地址</th><th>要求送达</th><th>货物(数量)</th><th>运价方式</th><th>状态</th>'
+  + '<th class="sticky-col-r">操作</th>'
+  + '</tr></thead><tbody id="orderTableBody"></tbody></table></div>'
+  + '<div class="pagination"><div class="pagination-info">共 <span id="orderTotalCount">0</span> 条，第 <span id="orderRangeFrom">1</span>-<span id="orderRangeTo">20</span> 条，<span id="orderPageSize">20</span>条/页</div>'
+  + '<div class="page-size"><span>每页</span><select id="orderPageSizeSelect" onchange="changeOrderPageSize(this.value)"><option value="10">10</option><option value="20" selected>20</option><option value="50">50</option></select><span>条</span></div>'
+  + '<div class="pagination-controls" id="orderPaginationControls"></div></div></div>';
+}
+function applyOrderFilters() {
+  var kw = document.getElementById('orderKeyword').value.trim();
+  var status = document.getElementById('orderStatusFilter').value;
+  filteredOrderData = (window.__orders || []).filter(function(o) {
+    if (kw && (o.id || '').indexOf(kw) === -1 && (o.customer || '').indexOf(kw) === -1 && (o.contract || '').indexOf(kw) === -1) return false;
+    if (status !== '全部' && o.status !== status) return false;
+    return true;
+  });
+  orderPage = 1;
+  buildOrderTable();
+}
+function resetOrderFilters() {
+  var kw = document.getElementById('orderKeyword'); if (kw) kw.value = '';
+  var st = document.getElementById('orderStatusFilter'); if (st) st.value = '全部';
+  filteredOrderData = (window.__orders || []).slice();
+  orderPage = 1;
+  buildOrderTable();
+}
+function orderStatusBadge(status) {
+  if (status === '已锁价') return '<span class="badge badge-success">●' + status + '</span>';
+  if (status === '待锁价') return '<span class="badge badge-warning">●' + status + '</span>';
+  return '<span class="badge">' + (status || '—') + '</span>';
+}
+function buildOrderTable() {
+  var total = filteredOrderData.length;
+  var totalPages = Math.max(1, Math.ceil(total / orderPageSize) || 1);
+  if (orderPage > totalPages) orderPage = totalPages;
+  if (orderPage < 1) orderPage = 1;
+  var start = (orderPage - 1) * orderPageSize;
+  var end = Math.min(start + orderPageSize, total);
+  var pageRows = filteredOrderData.slice(start, end);
+  var tbody = document.getElementById('orderTableBody');
+  if (!tbody) return;
+  var html = '';
+  for (var i = 0; i < pageRows.length; i++) {
+    var d = pageRows[i];
+    var seq = start + i + 1;
+    var goods = (d.goodsName || '—') + '（' + (d.goodsQty || '0') + '）';
+    html += '<tr>'
+    + '<td class="col-seq">' + seq + '</td>'
+    + '<td class="col-mono">' + d.id + '</td>'
+    + '<td>' + (d.orderType || '—') + '</td>'
+    + '<td>' + (d.customer || '—') + '</td>'
+    + '<td>' + (d.dept || '—') + '</td>'
+    + '<td>' + (d.receiveRegion || '—') + '</td>'
+    + '<td>' + (d.receiveAddress || '—') + '</td>'
+    + '<td class="col-time">' + (d.deliveryTime || '—') + '</td>'
+    + '<td>' + goods + '</td>'
+    + '<td>' + (d.fareMode === 'auto' ? '自动计价' : (d.fareMode === 'pending' ? '待锁价' : '—')) + '</td>'
+    + '<td>' + orderStatusBadge(d.status) + '</td>'
+    + '<td class="sticky-col-r"><a href="javascript:void(0)" class="link" onclick="viewOrder(\'' + d.id + '\')">查看</a><span style="color:var(--c-border-d);margin:0 4px;">|</span><a href="javascript:void(0)" class="btn-danger-text" onclick="deleteOrder(\'' + d.id + '\',\'' + (d.customer || d.id) + '\')">删除</a></td>'
+    + '</tr>';
+  }
+  if (pageRows.length === 0) html = '<tr><td class="empty-row" colspan="12" style="text-align:center;color:var(--c-text-3);padding:32px 0;">暂无订单数据，点击右上角「+ 新增订单」创建</td></tr>';
+  tbody.innerHTML = html;
+  var totalEl = document.getElementById('orderTotalCount');
+  var pageEl = document.getElementById('orderPageSize');
+  var fromEl = document.getElementById('orderRangeFrom');
+  var toEl = document.getElementById('orderRangeTo');
+  if (totalEl) totalEl.textContent = total;
+  if (pageEl) pageEl.textContent = orderPageSize;
+  if (fromEl) fromEl.textContent = total === 0 ? 0 : start + 1;
+  if (toEl) toEl.textContent = end;
+  renderOrderPagination(totalPages);
+}
+function renderOrderPagination(totalPages) {
+  var box = document.getElementById('orderPaginationControls');
+  if (!box) return;
+  var html = '';
+  html += '<button class="page-btn" ' + (orderPage <= 1 ? 'disabled' : '') + ' onclick="goOrderPage(1)">&laquo;</button>';
+  html += '<button class="page-btn" ' + (orderPage <= 1 ? 'disabled' : '') + ' onclick="goOrderPage(' + (orderPage - 1) + ')">&lsaquo;</button>';
+  var pages = [];
+  if (totalPages <= 7) { for (var i = 1; i <= totalPages; i++) pages.push(i); }
+  else { pages.push(1); var ps = Math.max(2, orderPage - 1); var pe = Math.min(totalPages - 1, orderPage + 1); if (ps > 2) pages.push('...'); for (var j = ps; j <= pe; j++) pages.push(j); if (pe < totalPages - 1) pages.push('...'); pages.push(totalPages); }
+  for (var k = 0; k < pages.length; k++) {
+    var p = pages[k];
+    if (p === '...') html += '<span class="page-ellipsis">…</span>';
+    else html += '<button class="page-btn' + (p === orderPage ? ' active' : '') + '" onclick="goOrderPage(' + p + ')">' + p + '</button>';
+  }
+  html += '<button class="page-btn" ' + (orderPage >= totalPages ? 'disabled' : '') + ' onclick="goOrderPage(' + (orderPage + 1) + ')">&rsaquo;</button>';
+  html += '<button class="page-btn" ' + (orderPage >= totalPages ? 'disabled' : '') + ' onclick="goOrderPage(' + totalPages + ')">&raquo;</button>';
+  box.innerHTML = html;
+}
+function goOrderPage(p) {
+  var totalPages = Math.max(1, Math.ceil(filteredOrderData.length / orderPageSize) || 1);
+  if (p < 1) p = 1; if (p > totalPages) p = totalPages;
+  orderPage = p; buildOrderTable();
+}
+function changeOrderPageSize(v) { orderPageSize = parseInt(v, 10) || 20; orderPage = 1; buildOrderTable(); }
+function viewOrder(code) {
+  if (typeof window.openDynamicOrder === 'function') {
+    window.openDynamicOrder(code);
+    return;
+  }
+  app.navigate('order-list');
+}
+
+function deleteOrder(code, name) {
+  if (!window.confirm('确认删除订单「' + (name || code) + '」？')) return;
+  fetch('/api/orders/' + encodeURIComponent(code), { method: 'DELETE' })
+    .then(function(r) { if (!r.ok) return r.json().then(function(err) { throw new Error(err.error || '删除失败'); }); return r.json(); })
+    .then(function() { return preloadOrders(); })
+    .then(function() { buildOrderTable(); showAppToast('订单已删除。'); })
+    .catch(function(e) { showAppToast('删除失败：' + (e && e.message ? e.message : e)); });
+}

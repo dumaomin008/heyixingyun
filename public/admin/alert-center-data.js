@@ -8,6 +8,22 @@
   var PROJECT_ID = 'YX001';
   var PROJECT_NAME = '玉溪项目';
   var LEVELS = ['一般', '严重', '紧急'];
+  var PROJECTS = [
+    { id: 'YX001', name: '玉溪项目' },
+    { id: 'JH001', name: '景洪项目' }
+  ];
+  /* 规则适用范围候选；判定逻辑不按车牌写死。 */
+  var PARKING_VEHICLES = [
+    { plate: '云A·D8021', projectId: 'YX001', projectName: '玉溪项目' },
+    { plate: '云A·E1936', projectId: 'YX001', projectName: '玉溪项目' },
+    { plate: '云A·F4470', projectId: 'YX001', projectName: '玉溪项目' },
+    { plate: '云A·G2288', projectId: 'YX001', projectName: '玉溪项目' },
+    { plate: '云A·H3188', projectId: 'YX001', projectName: '玉溪项目' },
+    { plate: '云A·H6612', projectId: 'YX001', projectName: '玉溪项目' },
+    { plate: '云A·K4419', projectId: 'JH001', projectName: '景洪项目' },
+    { plate: '云A·J5501', projectId: 'JH001', projectName: '景洪项目' },
+    { plate: '云A·S1008', projectId: 'YX001', projectName: '玉溪项目' }
+  ];
   var state;
 
   function clone(value) { return value == null ? value : JSON.parse(JSON.stringify(value)); }
@@ -19,18 +35,81 @@
   }
   function levelRank(level) { return level === '紧急' ? 3 : level === '严重' ? 2 : level === '一般' ? 1 : 0; }
   function ruleByCode(rules, code) { return (rules || []).filter(function (item) { return item.code === code; })[0] || null; }
+  function rulesByCode(rules, code) { return (rules || []).filter(function (item) { return item.code === code; }); }
   function levelByName(rule, name) { return (rule && rule.levels || []).filter(function (item) { return item.level === name; })[0] || null; }
   function durationLevel(level, threshold) { return { level: level, enabled: true, threshold: threshold }; }
   function speedLevel(level, speed, seconds) { return { level: level, enabled: true, speedThreshold: speed, durationSeconds: seconds }; }
   function fatigueLevel(level, minutes) { return { level: level, enabled: true, thresholdMinutes: minutes }; }
+  function defaultParkingDetect() {
+    return { stillSpeedKph: 3, minStillMinutes: 5, excludeLoading: true, excludeUnloading: true, excludeCharging: true };
+  }
+  function parkingRecoveryText(config) {
+    var speed = Number((config || {}).recoverSpeedKph || 5);
+    var minutes = Number((config || {}).recoverDurationMinutes || 3);
+    var extra = (config || {}).endOnTaskComplete !== false ? '；任务结束后自动结束监测' : '';
+    return '车速 ≥ ' + speed + ' km/h 持续 ' + minutes + ' 分钟' + extra;
+  }
+  function defaultParkingRecovery() {
+    var config = { recoverSpeedKph: 5, recoverDurationMinutes: 3, endOnTaskComplete: true };
+    config.description = parkingRecoveryText(config);
+    return config;
+  }
+  function inMonitorPeriod(rule, currentSignal) {
+    if (!rule || rule.monitorPeriod !== '自定义') return true;
+    var stamp = currentSignal.detectedAt || currentSignal.triggeredAt || nowText();
+    var hm = String(stamp).slice(11, 16);
+    var start = rule.monitorStart || '00:00';
+    var end = rule.monitorEnd || '23:59';
+    if (start <= end) return hm >= start && hm <= end;
+    return hm >= start || hm <= end;
+  }
+  function matchParkingRule(rules, currentSignal) {
+    var list = rulesByCode(rules, 'TRANSPORT_PARKING').filter(function (item) { return item.enabled; });
+    var plate = currentSignal.plate;
+    var projectId = currentSignal.projectId || PROJECT_ID;
+    var vehicleHit = list.filter(function (item) {
+      return item.scopeType === '指定车辆' && (item.vehiclePlates || []).indexOf(plate) >= 0;
+    });
+    if (vehicleHit.length) return vehicleHit[0];
+    var projectHit = list.filter(function (item) {
+      return item.scopeType === '指定项目' && (item.projectIds || []).indexOf(projectId) >= 0;
+    });
+    if (projectHit.length) return projectHit[0];
+    return list.filter(function (item) { return item.scopeType === '全部项目' || !item.scopeType; })[0] || null;
+  }
+  function resolveRule(rules, currentSignal) {
+    if (currentSignal.ruleCode === 'TRANSPORT_PARKING') return matchParkingRule(rules, currentSignal);
+    return ruleByCode(rules, currentSignal.ruleCode);
+  }
 
   function seedRules() {
     return [
       {
-        id: 'RULE_TRANSPORT_PARKING', code: 'TRANSPORT_PARKING', name: '停车预警', category: '运输', enabled: true,
-        description: '车辆处于运输相关状态并持续停车达到分级时长时触发', scopeType: '全部项目', projectIds: [],
+        id: 'RULE_TRANSPORT_PARKING', code: 'TRANSPORT_PARKING', name: '停车超时预警', category: '运输', enabled: true,
+        description: '运输任务执行中识别持续静止，排除装卸与充电后按分级时长触发',
+        scopeType: '全部项目', projectIds: [], projectNames: [], vehiclePlates: [],
+        monitorPeriod: '全天', monitorStart: '06:00', monitorEnd: '23:00',
+        detectConfig: defaultParkingDetect(),
         levels: [durationLevel('一般', 30), durationLevel('严重', 60), durationLevel('紧急', 120)],
-        recoveryConfig: { description: '车辆重新进入正常行驶状态' }, updatedBy: '系统预置', updatedAt: '2026-10-08 09:00:00'
+        recoveryConfig: defaultParkingRecovery(), updatedBy: '系统预置', updatedAt: '2026-10-08 09:00:00'
+      },
+      {
+        id: 'RULE_TRANSPORT_PARKING_K4419', code: 'TRANSPORT_PARKING', name: 'K4419例外停车预警', category: '运输', enabled: true,
+        description: '指定车辆覆盖默认规则，用于特殊车辆差异化阈值',
+        scopeType: '指定车辆', projectIds: [], projectNames: [], vehiclePlates: ['云A·K4419'],
+        monitorPeriod: '全天', monitorStart: '06:00', monitorEnd: '23:00',
+        detectConfig: defaultParkingDetect(),
+        levels: [durationLevel('一般', 20), durationLevel('严重', 40), durationLevel('紧急', 90)],
+        recoveryConfig: defaultParkingRecovery(), updatedBy: '系统预置', updatedAt: '2026-10-08 09:00:00'
+      },
+      {
+        id: 'RULE_TRANSPORT_PARKING_JH', code: 'TRANSPORT_PARKING', name: '景洪项目停车预警', category: '运输', enabled: true,
+        description: '指定项目覆盖默认规则，项目内执行任务车辆自动应用',
+        scopeType: '指定项目', projectIds: ['JH001'], projectNames: ['景洪项目'], vehiclePlates: [],
+        monitorPeriod: '全天', monitorStart: '06:00', monitorEnd: '23:00',
+        detectConfig: defaultParkingDetect(),
+        levels: [durationLevel('一般', 25), durationLevel('严重', 50), durationLevel('紧急', 90)],
+        recoveryConfig: defaultParkingRecovery(), updatedBy: '系统预置', updatedAt: '2026-10-08 09:00:00'
       },
       {
         id: 'RULE_PARKING_AREA', code: 'PARKING_AREA', name: '停车区域预警', category: '作业', enabled: true,
@@ -77,10 +156,32 @@
   function monitorSignals() {
     return [
       signal({ sourceId: 'live-stop', ruleCode: 'TRANSPORT_PARKING', plate: '云A·D8021', driverName: '李宏俊', driverId: 'D021', taskId: 'Y20260904000021', route: '大开门 → 昆钢', cargo: '水渣', location: '昆磨高速辅路', triggeredAt: '2026-10-08 08:30:00', sourceStatus: 'active' },
-        { transportRelevant: true, speed: 0, parkingStartedAt: '2026-10-08 08:30:00', parkingMinutes: 72 }, ['车辆处于运输中', '当前车速：0 km/h', '连续停车：72分钟'], [
-          { action: 'TRIGGERED', level: '一般', at: '2026-10-08 09:00:00', remark: '连续停车达到30分钟' },
-          { action: 'LEVEL_UPGRADED', from: '一般', to: '严重', at: '2026-10-08 09:30:00', remark: '连续停车达到60分钟' }
+        { taskStatus: '执行中', taskBound: true, taskNode: '运输途中', transportRelevant: true, speed: 2, parkingStartedAt: '2026-10-08 08:30:00', parkingMinutes: 72, recoverHoldMinutes: 0, loadingScene: false, unloadingScene: false, charging: false }, [], [
+          { action: 'STILL_STARTED', at: '2026-10-08 08:30:00', remark: '车辆进入持续静止状态' },
+          { action: 'TRIGGERED', level: '一般', at: '2026-10-08 09:00:00', remark: '连续异常停车达到30分钟，一般告警' },
+          { action: 'LEVEL_UPGRADED', from: '一般', to: '严重', at: '2026-10-08 09:30:00', remark: '连续异常停车达到60分钟' }
         ]),
+      signal({ sourceId: 'live-parking-handled', ruleCode: 'TRANSPORT_PARKING', plate: '云A·H6612', driverName: '陈志远', driverId: 'D025', taskId: 'Y20260904000025', route: '昆钢 → 研和', cargo: '水泥', location: 'G8511 服务区外侧', triggeredAt: '2026-10-08 09:40:00', sourceStatus: 'active' },
+        { taskStatus: '执行中', taskBound: true, taskNode: '运输途中', transportRelevant: true, speed: 1, parkingStartedAt: '2026-10-08 09:10:00', parkingMinutes: 48, recoverHoldMinutes: 0, loadingScene: false, unloadingScene: false, charging: false }, []),
+      signal({ sourceId: 'live-parking-loading', ruleCode: 'TRANSPORT_PARKING', plate: '云A·F4470', driverName: '马旺', driverId: 'D023', taskId: 'Y20260904000026', route: '大开门 → 昆钢', cargo: '煤炭', location: '大开门装货区', triggeredAt: '2026-10-08 08:00:00', sourceStatus: 'active' },
+        { taskStatus: '执行中', taskBound: true, taskNode: '装货作业', transportRelevant: true, speed: 0, parkingStartedAt: '2026-10-08 08:00:00', parkingMinutes: 60, recoverHoldMinutes: 0, loadingScene: true, unloadingScene: false, charging: false }, []),
+      signal({ sourceId: 'live-parking-unload', ruleCode: 'TRANSPORT_PARKING', plate: '云A·E1936', driverName: '王磊', driverId: 'D022', taskId: 'Y20260904000027', route: '昆钢 → 北城', cargo: '铁精粉', location: '北城卸货区', triggeredAt: '2026-10-08 08:20:00', sourceStatus: 'active' },
+        { taskStatus: '执行中', taskBound: true, taskNode: '卸货作业', transportRelevant: true, speed: 0, parkingStartedAt: '2026-10-08 08:20:00', parkingMinutes: 60, recoverHoldMinutes: 0, loadingScene: false, unloadingScene: true, charging: false }, []),
+      signal({ sourceId: 'live-parking-charge', ruleCode: 'TRANSPORT_PARKING', plate: '云A·S1008', driverName: '罗伟', driverId: 'D038', taskId: 'Y20260904000038', route: '研和 → 北城', cargo: '水泥', location: '北城充电站', triggeredAt: '2026-10-08 09:00:00', sourceStatus: 'active' },
+        { taskStatus: '执行中', taskBound: true, taskNode: '充电中', transportRelevant: true, speed: 0, parkingStartedAt: '2026-10-08 09:00:00', parkingMinutes: 40, recoverHoldMinutes: 0, loadingScene: false, unloadingScene: false, charging: true }, []),
+      signal({ sourceId: 'live-parking-brief', ruleCode: 'TRANSPORT_PARKING', plate: '云A·H3188', driverName: '何平', driverId: 'D033', taskId: 'Y20260904000033', route: '北城 → 研和', cargo: '煤炭', location: '昆磨高速', triggeredAt: '2026-10-08 10:40:00', sourceStatus: 'active' },
+        { taskStatus: '执行中', taskBound: true, taskNode: '运输途中', transportRelevant: true, speed: 0, parkingStartedAt: '2026-10-08 10:40:00', parkingMinutes: 3, recoverHoldMinutes: 0, loadingScene: false, unloadingScene: false, charging: false }, []),
+      signal({ sourceId: 'history-parking-recover', ruleCode: 'TRANSPORT_PARKING', plate: '云A·G2288', driverName: '张建华', driverId: 'D024', taskId: 'Y20261007000024', route: '大开门 → 北城', cargo: '水渣', location: '昆钢厂区外侧', triggeredAt: '2026-10-07 07:20:00', recoveredAt: '2026-10-07 09:28:00', sourceStatus: 'recovered', wasTriggered: true, finalLevel: '严重' },
+        { taskStatus: '执行中', taskBound: true, taskNode: '运输途中', transportRelevant: true, speed: 12, parkingStartedAt: '2026-10-07 07:20:00', parkingMinutes: 125, recoverHoldMinutes: 4, loadingScene: false, unloadingScene: false, charging: false }, [], [
+          { action: 'STILL_STARTED', at: '2026-10-07 07:20:00', remark: '车辆进入持续静止状态' },
+          { action: 'TRIGGERED', level: '一般', at: '2026-10-07 07:50:00', remark: '连续异常停车达到30分钟，一般告警' },
+          { action: 'LEVEL_UPGRADED', from: '一般', to: '严重', at: '2026-10-07 08:20:00', remark: '连续异常停车达到60分钟' },
+          { action: 'RECOVERED', at: '2026-10-07 09:28:00', remark: '车辆速度≥5km/h持续3分钟' }
+        ]),
+      signal({ sourceId: 'live-parking-k4419', ruleCode: 'TRANSPORT_PARKING', plate: '云A·K4419', driverName: '赵敏', driverId: 'D041', taskId: 'Y20260904000041', route: '景洪水泥厂 → 城北搅拌站', cargo: '水泥', location: '景洪东风镇辅路', triggeredAt: '2026-10-08 10:20:00', sourceStatus: 'active' },
+        { taskStatus: '执行中', taskBound: true, taskNode: '运输途中', transportRelevant: true, speed: 1, parkingStartedAt: '2026-10-08 10:00:00', parkingMinutes: 25, recoverHoldMinutes: 0, loadingScene: false, unloadingScene: false, charging: false }, []),
+      signal({ sourceId: 'live-parking-jinghong', ruleCode: 'TRANSPORT_PARKING', plate: '云A·J5501', driverName: '刘洋', driverId: 'D042', taskId: 'Y20260904000042', route: '景洪水泥厂 → 旧卸料场', cargo: '水泥', location: '景洪城北绕城', triggeredAt: '2026-10-08 10:25:00', sourceStatus: 'active' },
+        { taskStatus: '执行中', taskBound: true, taskNode: '运输途中', transportRelevant: true, speed: 0, parkingStartedAt: '2026-10-08 09:57:00', parkingMinutes: 28, recoverHoldMinutes: 0, loadingScene: false, unloadingScene: false, charging: false }, []),
       signal({ sourceId: 'live-area', ruleCode: 'PARKING_AREA', plate: '云A10103', driverName: '周强', driverId: 'D028', taskId: 'Y20260904000028', route: '昆钢 → 北城', cargo: '钢材', location: '北城卸货区', triggeredAt: '2026-10-08 07:45:00', sourceStatus: 'active' },
         { insideBusinessArea: true, areaDwellMinutes: 135, fenceName: '北城卸货区', enteredAt: '2026-10-08 07:45:00' }, ['07:45 进入北城卸货区', '当前仍在业务区域', '停留时长：2小时15分钟']),
       signal({ sourceId: 'live-speed', ruleCode: 'VEHICLE_OVERSPEED', plate: '云A·E1936', driverName: '王磊', driverId: 'D022', taskId: 'Y20260904000022', route: '北城 → 研和', cargo: '铁精粉', location: 'G8511 昆磨高速', triggeredAt: '2026-10-08 10:12:00', sourceStatus: 'active' },
@@ -113,7 +214,18 @@
           { action: 'LEVEL_UPGRADED', from: '一般', to: '严重', at: '2026-10-07 17:42:00', remark: '连续驾驶4小时' },
           { action: 'RECOVERED', at: '2026-10-07 18:25:00', remark: '车辆连续停车25分钟，达到有效休息条件' }
         ])
-    ];
+    ].map(attachParkingContext);
+  }
+  function attachParkingContext(item) {
+    if (item.ruleCode !== 'TRANSPORT_PARKING') return item;
+    var found = PARKING_VEHICLES.filter(function (vehicle) { return vehicle.plate === item.plate; })[0];
+    if (found) {
+      item.projectId = found.projectId;
+      item.projectName = found.projectName;
+    }
+    item.metrics = item.metrics || {};
+    item.metrics.mockSource = 'frontend-demo';
+    return item;
   }
 
   function enabledLevels(rule) {
@@ -124,10 +236,44 @@
     return matched[0] || null;
   }
   function evaluation(level, metrics, facts) { return { triggered: !!level, level: level ? level.level : null, levelConfig: clone(level), metrics: clone(metrics || {}), facts: clone(facts || []) }; }
+  function parkingFacts(currentSignal, rule) {
+    var m = currentSignal.metrics || {};
+    var detect = (rule && rule.detectConfig) || {};
+    var still = Number(detect.stillSpeedKph || 3);
+    var excluded = m.loadingScene === true || m.unloadingScene === true || m.charging === true;
+    var facts = [
+      '车辆正在执行任务 ' + (currentSignal.taskId || '—'),
+      '当前处于' + (m.taskNode || '运输途中'),
+      excluded ? '命中装货、卸货或充电排除场景' : '未处于装货、卸货或充电场景',
+      (m.parkingStartedAt ? String(m.parkingStartedAt).slice(11, 16) : '—') + ' 开始持续静止',
+      '当前已连续异常停车' + (m.parkingMinutes == null ? '—' : m.parkingMinutes) + '分钟',
+      '当前车速：' + (m.speed == null ? '—' : m.speed) + ' km/h（静止阈值 ≤' + still + ' km/h）'
+    ];
+    var matched = highestMatched(rule, function (item) { return Number(m.parkingMinutes) >= Number(item.threshold); });
+    if (matched) facts.push('已超过“' + matched.level + '”告警阈值' + matched.threshold + '分钟');
+    return facts;
+  }
   function evaluateParking(currentSignal, rule) {
     var m = currentSignal.metrics || {};
-    if (m.transportRelevant !== true || Number(m.speed) > 5) return evaluation(null, m, currentSignal.facts);
-    return evaluation(highestMatched(rule, function (item) { return Number(m.parkingMinutes) >= Number(item.threshold); }), m, currentSignal.facts);
+    var facts = parkingFacts(currentSignal, rule);
+    if (!rule || rule.enabled === false) return evaluation(null, m, facts);
+    if (!inMonitorPeriod(rule, currentSignal)) return evaluation(null, m, facts);
+    var executing = m.taskStatus === '执行中' || m.transportRelevant === true;
+    var bound = m.taskBound !== false && !!(currentSignal.taskId || m.taskId);
+    if (!executing || !bound) return evaluation(null, m, facts);
+    var detect = rule.detectConfig || {};
+    if (detect.excludeLoading !== false && m.loadingScene === true) return evaluation(null, m, facts);
+    if (detect.excludeUnloading !== false && m.unloadingScene === true) return evaluation(null, m, facts);
+    if (detect.excludeCharging !== false && m.charging === true) return evaluation(null, m, facts);
+    if (Number(m.speed) > Number(detect.stillSpeedKph || 3)) return evaluation(null, m, facts);
+    if (Number(m.parkingMinutes) < Number(detect.minStillMinutes || 5)) return evaluation(null, m, facts);
+    return evaluation(highestMatched(rule, function (item) { return Number(m.parkingMinutes) >= Number(item.threshold); }), m, facts);
+  }
+  function parkingShouldRecover(currentSignal, rule) {
+    var m = currentSignal.metrics || {};
+    var rec = (rule && rule.recoveryConfig) || {};
+    if (rec.endOnTaskComplete !== false && (m.taskEnded === true || m.taskStatus === '已结束' || m.taskStatus === '已完成')) return true;
+    return Number(m.speed) >= Number(rec.recoverSpeedKph || 5) && Number(m.recoverHoldMinutes || 0) >= Number(rec.recoverDurationMinutes || 3);
   }
   function evaluateParkingArea(currentSignal, rule) {
     var m = currentSignal.metrics || {};
@@ -173,15 +319,29 @@
     return [currentSignal.ruleCode, currentSignal.vehicleId || currentSignal.plate, currentSignal.taskId || 'NO_TASK'].join('|');
   }
   function ruleSnapshot(rule) {
-    return { ruleId: rule.id, ruleCode: rule.code, ruleName: rule.name, category: rule.category, levels: clone(rule.levels), recoveryConfig: clone(rule.recoveryConfig), capturedAt: nowText() };
+    return {
+      ruleId: rule.id, ruleCode: rule.code, ruleName: rule.name, category: rule.category,
+      levels: clone(rule.levels), recoveryConfig: clone(rule.recoveryConfig),
+      detectConfig: clone(rule.detectConfig || null), monitorPeriod: rule.monitorPeriod || '全天',
+      monitorStart: rule.monitorStart || '', monitorEnd: rule.monitorEnd || '',
+      scopeType: rule.scopeType || '全部项目', capturedAt: nowText()
+    };
   }
   function snapshotRule(snapshot, code) {
-    return { code: snapshot.ruleCode || code, levels: clone(snapshot.levels || []), recoveryConfig: clone(snapshot.recoveryConfig || {}) };
+    return {
+      id: snapshot.ruleId, code: snapshot.ruleCode || code, name: snapshot.ruleName,
+      enabled: true, levels: clone(snapshot.levels || []),
+      recoveryConfig: clone(snapshot.recoveryConfig || {}),
+      detectConfig: clone(snapshot.detectConfig || defaultParkingDetect()),
+      monitorPeriod: snapshot.monitorPeriod || '全天',
+      monitorStart: snapshot.monitorStart, monitorEnd: snapshot.monitorEnd,
+      scopeType: snapshot.scopeType || '全部项目'
+    };
   }
   function valueText(currentSignal) {
     var m = currentSignal.metrics || {};
     if (currentSignal.displayValue) return currentSignal.displayValue;
-    if (currentSignal.ruleCode === 'TRANSPORT_PARKING') return '连续停车' + m.parkingMinutes + '分钟';
+    if (currentSignal.ruleCode === 'TRANSPORT_PARKING') return '连续异常停车' + m.parkingMinutes + '分钟';
     if (currentSignal.ruleCode === 'PARKING_AREA') return '区域停留' + m.areaDwellMinutes + '分钟';
     if (currentSignal.ruleCode === 'VEHICLE_OVERSPEED') return m.speed + ' km/h · ' + m.overspeedDurationSeconds + '秒';
     if (currentSignal.ruleCode === 'UNLOAD_WEIGHBILL_MISSING') return '未上传 · ' + m.waitingMinutes + '分钟';
@@ -191,16 +351,21 @@
   }
   function eventFromSignal(currentSignal, rule, result, id) {
     var handling = currentSignal.sourceId === 'live-stop';
-    var handled = currentSignal.sourceId === 'live-soc';
+    var handled = currentSignal.sourceId === 'live-soc' || currentSignal.sourceId === 'live-parking-handled';
     return {
       id: id, sourceId: currentSignal.sourceId, eventKey: eventKey(currentSignal), drivingCycleId: currentSignal.drivingCycleId || (currentSignal.metrics || {}).drivingCycleId || null,
       ruleId: rule.id, ruleCode: rule.code, category: rule.category, type: rule.name,
-      initialLevel: currentSignal.history && currentSignal.history[0] && currentSignal.history[0].level || result.level,
-      level: currentSignal.finalLevel || result.level || '一般', projectId: PROJECT_ID, projectName: PROJECT_NAME,
+      initialLevel: (currentSignal.history || []).filter(function (item) { return item.level; })[0] && (currentSignal.history || []).filter(function (item) { return item.level; })[0].level || result.level,
+      level: currentSignal.finalLevel || result.level || '一般',
+      projectId: currentSignal.projectId || PROJECT_ID,
+      projectName: currentSignal.projectName || PROJECT_NAME,
       vehicleId: currentSignal.vehicleId || 'FV-' + String(currentSignal.plate || '').replace(/[^A-Z0-9\u4e00-\u9fa5]/gi, ''), plate: currentSignal.plate,
       driverId: currentSignal.driverId, driverName: currentSignal.driverName, taskId: currentSignal.taskId,
       route: currentSignal.route, cargo: currentSignal.cargo, location: currentSignal.location,
-      triggeredAt: currentSignal.history && currentSignal.history[0] && currentSignal.history[0].at || currentSignal.triggeredAt || currentSignal.detectedAt || nowText(),
+      triggeredAt: (function () {
+        var hit = (currentSignal.history || []).filter(function (item) { return item.action === 'TRIGGERED'; })[0];
+        return (hit && hit.at) || currentSignal.triggeredAt || currentSignal.detectedAt || nowText();
+      })(),
       recoveredAt: currentSignal.recoveredAt || null, currentValueText: valueText(currentSignal),
       eventStatus: currentSignal.sourceStatus === 'recovered' ? '已恢复' : '发生中',
       handleStatus: handled ? '已处理' : handling ? '处理中' : '待处理',
@@ -208,21 +373,38 @@
       acknowledgedBy: handling || handled ? OPERATOR : null,
       handlerId: handled ? 'U001' : null, handlerName: handled ? OPERATOR : null,
       handlingStartedAt: handled ? '2026-10-08 10:11:00' : null, handledAt: handled ? '2026-10-08 10:13:00' : null,
-      handlingType: handled ? '安排充电' : null, handlingResult: handled ? '已联系司机前往最近充电站，持续关注车辆电量。' : null,
+      handlingType: handled ? (currentSignal.sourceId === 'live-parking-handled' ? '已联系司机' : '安排充电') : null,
+      parkingReason: handled && currentSignal.sourceId === 'live-parking-handled' ? '道路拥堵' : null,
+      handlingResult: handled ? (currentSignal.sourceId === 'live-parking-handled' ? '已联系司机，车辆因前方事故拥堵临时停车，司机及车辆正常，持续关注。' : '已联系司机前往最近充电站，持续关注车辆电量。') : null,
       ruleSnapshot: ruleSnapshot(rule), metrics: clone(result.metrics), facts: clone(result.facts), lastDetectedAt: nowText()
     };
   }
 
   function eventId(index) { return 'AL20261008' + String(index + 1).padStart(4, '0'); }
   function logId(index) { return 'LOG20261008' + String(index + 1).padStart(4, '0'); }
+  function parkingTriggerRemark(event) {
+    var level = event.initialLevel || event.level;
+    var matched = ((event.ruleSnapshot || {}).levels || []).filter(function (item) { return item.level === level; })[0];
+    return '连续异常停车达到' + ((matched && matched.threshold) || 30) + '分钟，' + level + '告警';
+  }
   function addSeedLogs(logs, event, history) {
     (history || []).forEach(function (entry) {
       logs.push({ id: logId(logs.length), alertId: event.id, action: entry.action, operator: entry.operator || '系统', operatedAt: entry.at, remark: entry.remark || '', fromLevel: entry.from || null, toLevel: entry.to || entry.level || null });
     });
-    if (!history || !history.length) logs.push({ id: logId(logs.length), alertId: event.id, action: 'TRIGGERED', operator: '系统', operatedAt: event.triggeredAt, remark: '首次达到' + event.level + '等级条件', toLevel: event.level });
+    if (!history || !history.length) {
+      if (event.ruleCode === 'TRANSPORT_PARKING' && event.metrics && event.metrics.parkingStartedAt) {
+        logs.push({ id: logId(logs.length), alertId: event.id, action: 'STILL_STARTED', operator: '系统', operatedAt: event.metrics.parkingStartedAt, remark: '车辆进入持续静止状态' });
+      }
+      logs.push({ id: logId(logs.length), alertId: event.id, action: 'TRIGGERED', operator: '系统', operatedAt: event.triggeredAt, remark: event.ruleCode === 'TRANSPORT_PARKING' ? parkingTriggerRemark(event) : ('首次达到' + event.level + '等级条件'), toLevel: event.initialLevel || event.level });
+    }
     if (event.acknowledgedAt) logs.push({ id: logId(logs.length), alertId: event.id, action: 'ACKNOWLEDGED', operator: event.acknowledgedBy, operatedAt: event.acknowledgedAt, remark: '已知悉告警' });
     if (event.handlingStartedAt) logs.push({ id: logId(logs.length), alertId: event.id, action: 'HANDLING_STARTED', operator: event.handlerName, operatedAt: event.handlingStartedAt, remark: event.handlingType });
-    if (event.handledAt) logs.push({ id: logId(logs.length), alertId: event.id, action: 'HANDLED', operator: event.handlerName, operatedAt: event.handledAt, remark: event.handlingResult });
+    if (event.handledAt) logs.push({
+      id: logId(logs.length), alertId: event.id, action: 'HANDLED', operator: event.handlerName, operatedAt: event.handledAt,
+      remark: event.ruleCode === 'TRANSPORT_PARKING' && event.parkingReason
+        ? ((event.handlingType || '人工处理') + '，' + event.parkingReason + (event.handlingResult ? '。' + event.handlingResult : ''))
+        : event.handlingResult
+    });
   }
   function seedState() {
     var rules = seedRules();
@@ -230,14 +412,15 @@
     var events = [];
     var logs = [];
     monitorSignals().forEach(function (currentSignal) {
-      var rule = ruleByCode(rules, currentSignal.ruleCode);
+      var rule = resolveRule(rules, currentSignal);
+      if (!rule) return;
       var result = evaluateSignal(currentSignal, rule);
       if (!currentSignal.wasTriggered && (!rule.enabled || !result.triggered)) return;
       var event = eventFromSignal(currentSignal, rule, result, eventId(events.length));
       events.push(event);
       addSeedLogs(logs, event, currentSignal.history);
     });
-    return { version: 2, rules: rules, events: events, logs: logs };
+    return { version: 3, rules: rules, events: events, logs: logs };
   }
 
   function migrateVeryOldRules(rules) {
@@ -263,11 +446,11 @@
     if (!savedRule) return clone(template);
     var normalized = Object.assign({}, clone(template), clone(savedRule));
     /* 规则元数据由当前版本统一定义，迁移时只保留用户可配置项和修改记录。 */
-    normalized.id = template.id;
+    normalized.id = savedRule.id || template.id;
     normalized.code = template.code;
-    normalized.name = template.name;
+    normalized.name = savedRule.name || template.name;
     normalized.category = template.category;
-    normalized.description = template.description;
+    normalized.description = savedRule.description || template.description;
     normalized.levels = clone(template.levels);
     if (Array.isArray(savedRule.levels)) {
       normalized.levels = template.levels.map(function (defaultLevel) {
@@ -282,7 +465,20 @@
       target[field] = oldValue;
       if (!orderValid(normalized)) normalized.levels = clone(template.levels);
     }
-    normalized.recoveryConfig = Object.assign({}, clone(template.recoveryConfig), clone(savedRule.recoveryConfig || {}), { description: template.recoveryConfig.description });
+    normalized.recoveryConfig = Object.assign({}, clone(template.recoveryConfig), clone(savedRule.recoveryConfig || {}));
+    if (normalized.code === 'TRANSPORT_PARKING') {
+      normalized.detectConfig = Object.assign({}, clone(template.detectConfig || defaultParkingDetect()), clone(savedRule.detectConfig || {}));
+      normalized.monitorPeriod = savedRule.monitorPeriod || template.monitorPeriod || '全天';
+      normalized.monitorStart = savedRule.monitorStart || template.monitorStart || '06:00';
+      normalized.monitorEnd = savedRule.monitorEnd || template.monitorEnd || '23:00';
+      normalized.scopeType = savedRule.scopeType || template.scopeType || '全部项目';
+      normalized.projectIds = Array.isArray(savedRule.projectIds) ? clone(savedRule.projectIds) : clone(template.projectIds || []);
+      normalized.projectNames = Array.isArray(savedRule.projectNames) ? clone(savedRule.projectNames) : clone(template.projectNames || []);
+      normalized.vehiclePlates = Array.isArray(savedRule.vehiclePlates) ? clone(savedRule.vehiclePlates) : clone(template.vehiclePlates || []);
+      normalized.recoveryConfig.description = parkingRecoveryText(normalized.recoveryConfig);
+    } else {
+      normalized.recoveryConfig.description = template.recoveryConfig.description;
+    }
     normalized.enabled = savedRule.enabled !== false;
     delete normalized.level;
     delete normalized.config;
@@ -337,18 +533,28 @@
   }
   function normalize(saved) {
     var seeded = seedState();
-    if (!saved || (saved.version !== 1 && saved.version !== 2)) return seeded;
+    if (!saved || saved.version !== 3) return seeded;
     var savedRules = Array.isArray(saved.rules) ? saved.rules : [];
-    var rules = seeded.rules.map(function (template) { return normalizeRule(ruleByCode(savedRules, template.code), template); });
+    var savedById = {};
+    savedRules.forEach(function (item) { if (item && item.id) savedById[item.id] = item; });
+    var rules = seeded.rules.map(function (template) {
+      if (saved.version >= 3) return normalizeRule(savedById[template.id] || (template.code !== 'TRANSPORT_PARKING' ? ruleByCode(savedRules, template.code) : null), template);
+      if (template.code === 'TRANSPORT_PARKING' && template.id !== 'RULE_TRANSPORT_PARKING') return clone(template);
+      return normalizeRule(ruleByCode(savedRules, template.code), template);
+    });
+    if (saved.version >= 3) {
+      savedRules.forEach(function (savedRule) {
+        if (!savedRule || savedRule.code !== 'TRANSPORT_PARKING') return;
+        if (rules.some(function (item) { return item.id === savedRule.id; })) return;
+        var template = clone(ruleByCode(seeded.rules, 'TRANSPORT_PARKING'));
+        template.id = savedRule.id;
+        rules.push(normalizeRule(savedRule, template));
+      });
+    }
     var events = Array.isArray(saved.events) ? saved.events.map(function (event) { return normalizeEvent(event, rules); }) : clone(seeded.events);
     var logs = Array.isArray(saved.logs) ? clone(saved.logs) : clone(seeded.logs);
     mergeSeedHistory(events, logs, seeded);
-    return {
-      version: 2,
-      rules: rules,
-      events: events,
-      logs: logs
-    };
+    return { version: 3, rules: rules, events: events, logs: logs };
   }
   function load() {
     try { return normalize(JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null')); }
@@ -377,6 +583,7 @@
   }
   function recoveryRemark(currentSignal, rule) {
     var m = currentSignal.metrics || {};
+    if (currentSignal.ruleCode === 'TRANSPORT_PARKING') return parkingRecoveryText(rule && rule.recoveryConfig);
     if (currentSignal.ruleCode === 'DRIVER_FATIGUE') {
       if (m.driverChanged) return '车辆驾驶员已发生变更，本次连续驾驶周期结束';
       if (Number(m.continuousParkingMinutes || 0) >= Number(rule.recoveryConfig.restThresholdMinutes || 20)) return '车辆连续停车' + m.continuousParkingMinutes + '分钟，达到有效休息条件';
@@ -392,7 +599,7 @@
     event.lastDetectedAt = nowText();
   }
   function processSignal(currentSignal, shouldPersist) {
-    var currentRule = ruleByCode(state.rules, currentSignal.ruleCode);
+    var currentRule = resolveRule(state.rules, currentSignal);
     var cycleChanged = false;
     if (currentSignal.ruleCode === 'DRIVER_FATIGUE' && currentSignal.driverId && currentSignal.drivingCycleId) {
       state.events.forEach(function (event) {
@@ -408,14 +615,17 @@
     var effectiveRule = active ? snapshotRule(active.ruleSnapshot, active.ruleCode) : currentRule;
     var result = evaluateSignal(currentSignal, effectiveRule);
     var changed = cycleChanged;
+    var shouldRecover = currentSignal.sourceStatus === 'recovered' || (currentSignal.ruleCode === 'TRANSPORT_PARKING'
+      ? parkingShouldRecover(currentSignal, effectiveRule)
+      : !result.triggered);
     if (active) {
       updateEvidence(active, currentSignal, result);
-      if (currentSignal.sourceStatus === 'recovered' || !result.triggered) {
+      if (shouldRecover) {
         active.eventStatus = '已恢复';
         active.recoveredAt = currentSignal.recoveredAt || currentSignal.detectedAt || nowText();
         addLog(active.id, 'RECOVERED', recoveryRemark(currentSignal, effectiveRule), { operatedAt: active.recoveredAt });
         changed = true;
-      } else if (active.level !== result.level) {
+      } else if (result.triggered && active.level !== result.level) {
         var action = levelRank(result.level) > levelRank(active.level) ? 'LEVEL_UPGRADED' : 'LEVEL_DOWNGRADED';
         var from = active.level;
         active.level = result.level;
@@ -432,9 +642,15 @@
       active.handlingStartedAt = null;
       active.handledAt = null;
       active.handlingType = null;
+      active.parkingReason = null;
       active.handlingResult = null;
       state.events.unshift(active);
-      addLog(active.id, 'TRIGGERED', '首次达到' + result.level + '等级条件；' + valueText(currentSignal), { toLevel: result.level, operatedAt: currentSignal.detectedAt || active.triggeredAt });
+      if (currentSignal.ruleCode === 'TRANSPORT_PARKING' && (currentSignal.metrics || {}).parkingStartedAt) {
+        addLog(active.id, 'STILL_STARTED', '车辆进入持续静止状态', { operatedAt: currentSignal.metrics.parkingStartedAt });
+      }
+      addLog(active.id, 'TRIGGERED', currentSignal.ruleCode === 'TRANSPORT_PARKING'
+        ? (valueText(currentSignal) + '，' + result.level + '告警')
+        : ('首次达到' + result.level + '等级条件；' + valueText(currentSignal)), { toLevel: result.level, operatedAt: currentSignal.detectedAt || active.triggeredAt });
       changed = true;
     }
     if (changed && shouldPersist !== false) persist();
@@ -446,14 +662,55 @@
     var after = state.logs.length + ':' + state.events.length;
     if (before !== after) persist();
   }
+  function parkingConflict(candidate, excludeId) {
+    return state.rules.filter(function (item) {
+      if (item.code !== 'TRANSPORT_PARKING' || item.enabled === false || item.id === excludeId) return false;
+      if ((item.scopeType || '全部项目') !== (candidate.scopeType || '全部项目')) return false;
+      if (candidate.scopeType === '全部项目' || !candidate.scopeType) return true;
+      if (candidate.scopeType === '指定项目') {
+        return (candidate.projectIds || []).some(function (id) { return (item.projectIds || []).indexOf(id) >= 0; });
+      }
+      return (candidate.vehiclePlates || []).some(function (plate) { return (item.vehiclePlates || []).indexOf(plate) >= 0; });
+    })[0] || null;
+  }
+  function parkingConflictError() {
+    return '当前适用范围已存在启用中的停车预警规则，请调整适用范围或停用原规则。';
+  }
+  function applyParkingPatch(rule, patch) {
+    if (patch.name != null) rule.name = String(patch.name).trim() || rule.name;
+    if (patch.monitorPeriod) rule.monitorPeriod = patch.monitorPeriod;
+    if (patch.monitorStart != null) rule.monitorStart = patch.monitorStart;
+    if (patch.monitorEnd != null) rule.monitorEnd = patch.monitorEnd;
+    if (patch.detectConfig) rule.detectConfig = Object.assign({}, rule.detectConfig || defaultParkingDetect(), clone(patch.detectConfig));
+    if (patch.scopeType) rule.scopeType = patch.scopeType;
+    if (Array.isArray(patch.projectIds)) rule.projectIds = clone(patch.projectIds);
+    if (Array.isArray(patch.projectNames)) rule.projectNames = clone(patch.projectNames);
+    if (Array.isArray(patch.vehiclePlates)) rule.vehiclePlates = clone(patch.vehiclePlates);
+    if (rule.scopeType === '全部项目') { rule.projectIds = []; rule.projectNames = []; rule.vehiclePlates = []; }
+    if (rule.scopeType === '指定项目') rule.vehiclePlates = [];
+    if (rule.scopeType === '指定车辆') { rule.projectIds = []; rule.projectNames = []; }
+  }
   function updateRule(id, patch) {
     var rule = state.rules.filter(function (item) { return item.id === id; })[0];
     if (!rule) return null;
-    if (patch.enabled != null) rule.enabled = !!patch.enabled;
-    if (patch.scopeType) rule.scopeType = patch.scopeType;
-    rule.projectIds = patch.scopeType === '指定项目' ? [PROJECT_ID] : [];
+    patch = patch || {};
+    var nextEnabled = patch.enabled != null ? !!patch.enabled : rule.enabled;
+    if (rule.code === 'TRANSPORT_PARKING') {
+      var candidate = clone(rule);
+      applyParkingPatch(candidate, patch);
+      candidate.enabled = nextEnabled;
+      if (candidate.enabled && parkingConflict(candidate, id)) return { error: parkingConflictError() };
+      applyParkingPatch(rule, patch);
+    } else {
+      if (patch.scopeType) rule.scopeType = patch.scopeType;
+      rule.projectIds = patch.scopeType === '指定项目' ? [PROJECT_ID] : (rule.projectIds || []);
+    }
+    if (patch.enabled != null) rule.enabled = nextEnabled;
     if (Array.isArray(patch.levels)) rule.levels = clone(patch.levels);
-    if (patch.recoveryConfig) rule.recoveryConfig = Object.assign({}, rule.recoveryConfig, clone(patch.recoveryConfig));
+    if (patch.recoveryConfig) {
+      rule.recoveryConfig = Object.assign({}, rule.recoveryConfig, clone(patch.recoveryConfig));
+      if (rule.code === 'TRANSPORT_PARKING') rule.recoveryConfig.description = parkingRecoveryText(rule.recoveryConfig);
+    }
     delete rule.level;
     delete rule.config;
     delete rule.repeatIntervalMinutes;
@@ -462,6 +719,32 @@
     persist();
     refreshDetection();
     return clone(rule);
+  }
+  function addParkingRule(patch) {
+    var template = clone(ruleByCode(seedRules(), 'TRANSPORT_PARKING'));
+    template.id = 'RULE_TRANSPORT_PARKING_' + Date.now();
+    template.name = (patch && patch.name) || '停车超时预警';
+    template.enabled = true;
+    template.scopeType = (patch && patch.scopeType) || '指定项目';
+    template.projectIds = [];
+    template.projectNames = [];
+    template.vehiclePlates = [];
+    applyParkingPatch(template, patch || {});
+    if (template.enabled && parkingConflict(template, null)) return { error: parkingConflictError() };
+    template.updatedBy = OPERATOR;
+    template.updatedAt = nowText();
+    state.rules.push(template);
+    persist();
+    return clone(template);
+  }
+  function removeRule(id) {
+    var rule = state.rules.filter(function (item) { return item.id === id; })[0];
+    if (!rule) return { error: '未找到规则' };
+    if (rule.code !== 'TRANSPORT_PARKING') return { error: '仅支持删除停车预警规则' };
+    if (rule.id === 'RULE_TRANSPORT_PARKING') return { error: '默认全部项目规则不能删除，可停用' };
+    state.rules = state.rules.filter(function (item) { return item.id !== id; });
+    persist();
+    return { ok: true };
   }
   function acknowledge(id) {
     var event = state.events.filter(function (item) { return item.id === id; })[0];
@@ -473,9 +756,10 @@
     persist();
     return clone(event);
   }
-  function handle(id, type, result) {
+  function handle(id, type, result, extra) {
     var event = state.events.filter(function (item) { return item.id === id; })[0];
     if (!event) return null;
+    extra = extra || {};
     var time = nowText();
     if (!event.acknowledgedAt) {
       event.acknowledgedAt = time;
@@ -491,8 +775,11 @@
     event.handlerName = OPERATOR;
     event.handledAt = time;
     event.handlingType = type;
+    event.parkingReason = event.ruleCode === 'TRANSPORT_PARKING' ? (extra.parkingReason || null) : event.parkingReason;
     event.handlingResult = result;
-    addLog(event.id, 'HANDLED', result, { operator: OPERATOR, operatedAt: time });
+    addLog(event.id, 'HANDLED', event.ruleCode === 'TRANSPORT_PARKING' && event.parkingReason
+      ? (type + '，' + event.parkingReason + '。' + result)
+      : result, { operator: OPERATOR, operatedAt: time });
     persist();
     return clone(event);
   }
@@ -507,7 +794,11 @@
   window.AlertCenterStore = {
     getRules: function () { return clone(state.rules); },
     getRule: function (id) { return clone(state.rules.filter(function (item) { return item.id === id; })[0] || null); },
+    getProjects: function () { return clone(PROJECTS); },
+    getParkingVehicles: function () { return clone(PARKING_VEHICLES); },
     updateRule: updateRule,
+    addParkingRule: addParkingRule,
+    removeRule: removeRule,
     getEvents: function () { refreshDetection(); return clone(state.events); },
     getEvent: function (id) { return clone(state.events.filter(function (item) { return item.id === id; })[0] || null); },
     getLogs: function (id) { return clone(logsFor(id)); },
