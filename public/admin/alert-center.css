@@ -30,29 +30,16 @@
 .ac-date-range span { color: var(--c-text-3); flex: none; }
 .ac-date-range .filter-control { min-width: 0; flex: 1; }
 .ac-table-wrap { max-height: calc(100vh - 460px); min-height: 260px; }
-.ac-table { min-width: 1480px; }
-.ac-table-transport_parking { min-width: 1980px; }
-.ac-table-area_stay_timeout { min-width: 1980px; }
-.ac-table-vehicle_overspeed { min-width: 2280px; }
+.ac-table { min-width: 1360px; }
 .ac-false-tag { display: inline-flex; margin-left: 6px; padding: 0 6px; height: 18px; align-items: center; border-radius: 999px; background: #f1f5f9; color: #64748b; font-size: 11px; font-weight: 600; vertical-align: middle; }
-.ac-speed-hero { display: grid; gap: 12px; margin-bottom: 16px; padding: 16px 18px; border: 1px solid var(--c-border); border-radius: 12px; background: linear-gradient(180deg, #f8fafc, #fff); }
-.ac-speed-hero strong { display: block; color: var(--c-text-1); font-size: 18px; }
-.ac-speed-hero span { display: block; margin-top: 4px; color: var(--c-text-2); font-size: 13px; }
-.ac-speed-hero dl { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin: 0; }
-.ac-speed-hero dt { color: var(--c-text-3); font-size: 11px; }
-.ac-speed-hero dd { margin: 2px 0 0; color: var(--c-text-1); font-size: 13px; font-weight: 650; }
 .ac-speed-duration { position: relative; min-width: 148px; }
 .ac-speed-duration .wr-duration-unit { position: absolute; top: 4px; right: 4px; z-index: 1; width: 64px; height: 24px; padding: 0 4px; border: 1px solid var(--c-border); border-radius: 4px; background: #fff; color: var(--c-text-2); font-size: 12px; }
 .ac-page .wr-level-condition .ac-speed-duration .form-control-text,
 .ac-parking-modal .ac-speed-duration .form-control-text { padding-right: 76px; }
 .ac-speed-recover { display: inline-flex; width: 180px; }
 .ac-speed-projects { margin-top: 8px; }
-.ac-rule-panel [hidden] { display: none !important; }
 .ac-timeline li.is-speed_start > i { background: #2563eb; box-shadow: 0 0 0 2px #bfdbfe; }
 .ac-timeline li.is-handled > i { background: #7c3aed; box-shadow: 0 0 0 2px #ddd6fe; }
-.ac-table-unload_weighbill_missing { min-width: 1760px; }
-.ac-table-vehicle_low_soc { min-width: 1480px; }
-.ac-table-driver_fatigue { min-width: 1760px; }
 .ac-table th, .ac-table td { white-space: nowrap; }
 .ac-table .ac-content-cell { max-width: 230px; overflow: hidden; text-overflow: ellipsis; }
 .ac-type-cell strong, .ac-type-cell small { display: block; }
@@ -107,23 +94,7 @@
 .ac-handle-context span, .ac-handle-context p { margin: 0; color: var(--c-text-2); font-size: 12.5px; line-height: 1.5; }
 .ac-result { min-height: 132px; resize: vertical; }
 .ac-handler-meta { display: flex; justify-content: space-between; color: var(--c-text-3); font-size: 11.5px; }
-.ac-rule-panel { display: grid; gap: 16px; }
-.ac-rule-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 64px; padding: 14px 18px; border: 1px solid var(--c-border); border-radius: 12px; background: #fff; box-shadow: var(--sh-sm); }
-.ac-rule-bar strong { display: block; color: var(--c-text-1); font-size: 14px; }
-.ac-rule-bar span { display: block; margin-top: 4px; color: var(--c-text-3); font-size: 12px; }
-.ac-rule-panel .form-section { margin: 0; padding: 18px 20px; border: 1px solid var(--c-border); border-radius: 12px; background: #fff; box-shadow: var(--sh-sm); }
-.ac-rule-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 18px; border: 1px solid var(--c-border); border-radius: 12px; background: #fff; }
-.ac-rule-bar .wr-switch i,
-.ac-rule-bar .wr-switch.is-on i { transform: none; }
-.ac-parking-rules { gap: 14px; }
-.ac-rule-picker { padding: 16px 18px; border: 1px solid var(--c-border); border-radius: 12px; background: #fff; box-shadow: var(--sh-sm); }
-.ac-rule-picker-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.ac-rule-picker-head strong { color: var(--c-text-1); font-size: 14px; }
-.ac-rule-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-.ac-rule-card { display: grid; gap: 4px; min-height: 88px; padding: 12px 14px; border: 1px solid var(--c-border); border-radius: 10px; background: #fff; text-align: left; cursor: pointer; }
-.ac-rule-card strong { color: var(--c-text-1); font-size: 13px; }
-.ac-rule-card span, .ac-rule-card em { color: var(--c-text-3); font-size: 12px; font-style: normal; }
-.ac-rule-card.is-active { border-color: color-mix(in srgb, var(--c-primary) 45%, #e2e8f0); background: color-mix(in srgb, var(--c-primary) 6%, #fff); box-shadow: var(--sh-sm); }
+.ac-rule-table { min-width: 1080px; }
 .ac-check { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; color: var(--c-text-1); font-size: 13px; }
 .ac-check-list { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 8px; }
 .ac-vehicle-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -141,7 +112,6 @@
 .ac-handle-records time { display: block; color: var(--c-text-3); font-size: 11px; }
 .ac-handle-records b { display: block; margin-top: 4px; color: var(--c-text-1); font-size: 13px; }
 .ac-handle-records p { margin: 4px 0 0; color: var(--c-text-2); font-size: 12px; line-height: 1.5; }
-.ac-rule-table { min-width: 1280px; }
 .ac-parking-modal-host { z-index: 1400; }
 .ac-parking-modal { width: min(1040px, calc(100vw - 40px)); max-height: calc(100vh - 40px); display: flex; flex-direction: column; overflow: hidden; }
 .ac-parking-modal .modal-header { flex: 0 0 auto; position: sticky; top: 0; }
@@ -175,7 +145,6 @@
   .ac-filter .filter-row { grid-template-columns: repeat(3, minmax(170px, 1fr)); }
   .ac-metrics-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ac-table-wrap { max-height: calc(100vh - 500px); }
-  .ac-rule-cards { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) {
   .ac-drawer { animation: none; }
