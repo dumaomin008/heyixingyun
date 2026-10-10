@@ -116,11 +116,11 @@
   var VM_WARNINGS = [
     { id: 'vw-bill', status: 'active', cat: 'fulfillment', type: '卸货磅单未上传', plate: '云A·F4470', site: '北城', time: '09:57', duration: '持续 26min', reason: '离开北城卸货区 26min，仍未上传卸货磅单', facts: ['09:42 离开北城卸货地', '卸货磅单：未上传'] },
     { id: 'vw-stop', status: 'active', cat: 'running', type: '停车预警', plate: '云A·D8021', site: '', time: '09:48', duration: '持续 42min', reason: '非业务区域持续停车 42min', facts: ['当前位置：昆磨高速辅路', '车辆速度：0 km/h', '不在装卸货点或充电站范围'] },
-    { id: 'vw-site', status: 'active', cat: 'site', type: '卸货区域停留预警', plate: '云A10103', site: '北城', time: '09:42', duration: '持续 1h16min', reason: '北城卸货区停留 1h16min，尚未离开', facts: ['08:26 到达北城卸货区', '当前仍在卸货区域', '停留时长：1h16min'] },
+    { id: 'vw-site', status: 'active', cat: 'site', type: '区域停留预警', plate: '云A10103', site: '北城', time: '09:42', duration: '持续 1h16min', reason: '北城卸货区停留 1h16min，尚未离开', facts: ['08:26 到达北城卸货区', '当前仍在卸货区域', '停留时长：1h16min'] },
     { id: 'vw-speed', status: 'active', cat: 'running', type: '车速预警', plate: '云A·E1936', site: '', time: '09:42', duration: '持续 2min', reason: '当前车速 86km/h，已持续 2min', facts: ['当前速度：86 km/h', '持续时间：2min'] },
     { id: 'vw-soc', status: 'active', cat: 'energy', type: 'SOC预警', plate: '云A·D8021', site: '', time: '09:38', duration: '持续 34min', reason: '当前 SOC 18%，电量偏低', facts: ['当前 SOC：18%', '当前任务：运输中'] },
     { id: 'vw-fatigue', status: 'active', cat: 'running', type: '司机疲劳驾驶', plate: '云A·K4419', site: '', time: '10:18', duration: '持续 4h12min', reason: '连续驾驶 4h12min，尚未休息', facts: ['连续驾驶时长：4h12min', '当前状态：仍在行驶中，尚未开始休息'] },
-    { id: 'vw-r1', status: 'recovered', cat: 'site', type: '充电站停留预警', plate: '云A66666', site: '昆钢', time: '08:32', recoveredAt: '09:06', duration: '已恢复', reason: '车辆离开充电站后自动恢复', facts: ['08:32 触发预警', '09:06 离开充电站', '09:06 自动恢复'] },
+    { id: 'vw-r1', status: 'recovered', cat: 'site', type: '区域停留预警', plate: '云A66666', site: '昆钢', time: '08:32', recoveredAt: '09:06', duration: '已恢复', reason: '车辆离开充电站后自动恢复', facts: ['08:32 触发预警', '09:06 离开充电站', '09:06 自动恢复'] },
     { id: 'vw-r2', status: 'recovered', cat: 'running', type: '停车预警', plate: '云A12345', site: '', time: '07:51', recoveredAt: '08:09', duration: '已恢复', reason: '车辆恢复正常行驶后自动恢复', facts: ['07:51 触发预警', '08:09 恢复正常行驶', '08:09 自动恢复'] },
     { id: 'vw-r3', status: 'recovered', cat: 'fulfillment', type: '卸货磅单未上传', plate: '云A10104', site: '研和', time: '07:20', recoveredAt: '07:31', duration: '已恢复', reason: '司机补传卸货磅单后自动恢复', facts: ['07:05 离开卸货地', '07:20 触发预警', '07:31 上传磅单并自动恢复'] },
     { id: 'vw-r4', status: 'recovered', cat: 'running', type: '司机疲劳驾驶', plate: '云A·H6612', site: '', time: '06:40', recoveredAt: '07:05', duration: '已恢复', reason: '司机休息后自动恢复', facts: ['06:40 触发预警', '06:45 停靠服务区开始休息', '07:05 休息后自动恢复'] }
@@ -985,24 +985,6 @@
   }
   function vmOpsSummary() {
     var tasks = vmScopedTasks();
-    var fleetScale = vmState.fleet === 'A车队' ? { total: 32, operating: 25, empty: 11.6 }
-      : vmState.fleet === 'B车队' ? { total: 31, operating: 23, empty: 14.1 }
-      : { total: 63, operating: 48, empty: 12.8 };
-    if (vmState.taskRoute !== 'all') {
-      var routeRatio = Math.max(.18, tasks.length / Math.max(1, vmTasks().filter(function (task) {
-        return vmState.fleet === 'all' || task.fleet === vmState.fleet;
-      }).length));
-      var routeEmptyRate = {
-        '昆钢 → 北城': 8.6,
-        '大开门 → 研和': 12.8,
-        '昆钢 → 研和': 10.9
-      };
-      fleetScale = {
-        total: Math.max(8, Math.round(fleetScale.total * routeRatio)),
-        operating: Math.max(6, Math.round(fleetScale.operating * routeRatio)),
-        empty: routeEmptyRate[vmState.taskRoute] || 12.8
-      };
-    }
     return {
       tasks: tasks,
       pendingDispatch: tasks.filter(function (task) { return task.businessStatus === 'pending_dispatch'; }).length,
@@ -1014,11 +996,7 @@
       done: tasks.filter(function (task) { return task.businessStatus === 'completed'; }).length,
       waiting: tasks.filter(function (task) { return ['pending_dispatch', 'pending_execute', 'pending_transport'].indexOf(task.businessStatus) >= 0; }).length,
       driving: tasks.filter(function (task) { return task.node === 'run'; }).length,
-      operation: tasks.filter(function (task) { return task.node === 'load' || task.node === 'unload'; }).length,
-      totalVehicles: fleetScale.total,
-      operatingVehicles: fleetScale.operating,
-      operatingRate: Math.round(fleetScale.operating / fleetScale.total * 100),
-      emptyRate: fleetScale.empty
+      operation: tasks.filter(function (task) { return task.node === 'load' || task.node === 'unload'; }).length
     };
   }
   function vmKpi() {
@@ -1033,21 +1011,24 @@
       '大开门 → 北城': { transport: 665, empty: 180 }
     };
     var selectedMileage = routeMileage[vmState.taskRoute];
-    var totalMileage = selectedMileage
-      ? Math.round((selectedMileage.transport + selectedMileage.empty) * scopeRatio)
-      : Math.round((3391 + 498) * scopeRatio);
-    var operatingVehicles = vehicleCounts.has_task;
-    var operatingRate = vehicleCounts.all ? Math.round(operatingVehicles / vehicleCounts.all * 100) : 0;
-    var averageVehicleMileage = Math.round(totalMileage / Math.max(1, operatingVehicles));
+    var transportMileage = selectedMileage
+      ? Math.round(selectedMileage.transport * scopeRatio)
+      : Math.round(3391 * scopeRatio);
+    var emptyMileage = selectedMileage
+      ? Math.round(selectedMileage.empty * scopeRatio)
+      : Math.round(498 * scopeRatio);
+    var fleetAssets = vmFleetAssetCounts();
+    var taskVehicles = vehicleCounts.has_task;
+    var averageVehicleMileage = Math.round((transportMileage + emptyMileage) / Math.max(1, taskVehicles));
     return [
+      { group: 'vehicle', groupName: '车辆态势', name: '任务车辆', value: taskVehicles + ' 辆', meta: '当前有运输任务', tint: 'operating', icon: 'operating', desc: '当前有运输任务的车辆数' },
+      { group: 'vehicle', groupName: '车辆态势', name: '无任务车辆', value: vehicleCounts.no_task + ' 辆', meta: '可关注闲置风险', tint: 'no-task', icon: 'noTask', desc: '当前没有运输任务且不在待运输状态的车辆数' },
       { group: 'result', groupName: '经营结果', name: '今日完成货量', value: Math.round(dailyCore.cargo).toLocaleString() + ' t', meta: summary.completed + ' 个任务单已完成', tint: 'cargo', icon: 'cargo', desc: '今日已复审通过的卸货净重合计，完成任务单作为辅助信息' },
       { group: 'result', groupName: '经营结果', name: '平均运输时长', value: (dailyCore.averageDuration / 60).toFixed(1) + ' h', meta: '装货离场至卸货离场', tint: 'duration', icon: 'duration', desc: '已完成任务从装货离场到卸货离场的平均时长' },
-      { group: 'result', groupName: '经营结果', name: '今日总里程', value: totalMileage.toLocaleString() + ' km', meta: '运输 + 空驶里程', tint: 'mileage', icon: 'mileage', desc: '今日运输里程与空驶里程合计' },
-      { group: 'result', groupName: '经营结果', name: '单车平均里程', value: averageVehicleMileage + ' km', meta: '按 ' + operatingVehicles + ' 辆运营车辆', tint: 'average', icon: 'average', desc: '今日总里程除以当前范围内的运营车辆数' },
-      { group: 'vehicle', groupName: '车辆态势', name: '车辆总数', value: vehicleCounts.all + ' 辆', meta: vmOrgCurrent().short, tint: 'fleet', icon: 'fleet', desc: '当前组织与线路范围内的车辆总数' },
-      { group: 'vehicle', groupName: '车辆态势', name: '运营车辆', value: operatingVehicles + ' 辆', meta: '当前有运输任务', tint: 'operating', icon: 'operating', desc: '当前有运输任务的车辆数' },
-      { group: 'vehicle', groupName: '车辆态势', name: '无任务车辆', value: vehicleCounts.no_task + ' 辆', meta: '可关注闲置风险', tint: 'no-task', icon: 'noTask', desc: '当前没有运输任务且不在待运输状态的车辆数' },
-      { group: 'vehicle', groupName: '车辆态势', name: '车辆运营率', value: operatingRate + '%', meta: operatingVehicles + ' / ' + vehicleCounts.all + ' 辆', tint: 'rate', icon: 'rate', desc: '运营车辆占当前范围车辆总数的比例' }
+      { group: 'result', groupName: '经营结果', name: '今日运输里程', value: transportMileage.toLocaleString() + ' km', meta: '载货行驶', tint: 'mileage', icon: 'mileage', desc: '今日载货运输里程' },
+      { group: 'result', groupName: '经营结果', name: '今日空驶里程', value: emptyMileage.toLocaleString() + ' km', meta: '无货行驶', tint: 'empty-mileage', icon: 'emptyMileage', desc: '今日空驶里程' },
+      { group: 'result', groupName: '经营结果', name: '单车平均里程', value: averageVehicleMileage + ' km', meta: '按 ' + taskVehicles + ' 辆任务车辆', tint: 'average', icon: 'average', desc: '今日运输里程与空驶里程合计除以当前范围内的任务车辆数' },
+      { group: 'vehicle', groupName: '车辆态势', name: '牵引车 / 挂车', pair: [{ label: '牵引车', value: fleetAssets.tractors }, { label: '挂车', value: fleetAssets.trailers }], meta: vmOrgCurrent().short, tint: 'fleet', icon: 'fleet', desc: '当前组织与线路范围内的牵引车数量与挂车数量' }
     ];
   }
   function vmKpiIcon(kind) {
@@ -1060,6 +1041,7 @@
       cargo: '<path d="M4 8 12 4l8 4-8 4-8-4Z"/><path d="m4 12 8 4 8-4M4 16l8 4 8-4"/>',
       duration: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
       mileage: '<path d="M4 17a8 8 0 0 1 16 0"/><path d="m12 17 4-5"/><path d="M7 17h10"/>',
+      emptyMileage: '<path d="M4 17a8 8 0 0 1 16 0"/><path d="m12 17 2-6"/><path d="M7 17h10"/>',
       average: '<path d="M4 19h16M6 15l3-4 3 2 5-7"/><circle cx="17" cy="6" r="2"/>',
       fleet: '<path d="M3 13h18M5 13l2-5h10l2 5M6 13v4M18 13v4"/><circle cx="8" cy="18" r="2"/><circle cx="16" cy="18" r="2"/>',
       operating: '<path d="M3 7h11v10H3zM14 11h5l2 3v3h-7"/><circle cx="7" cy="19" r="2"/><circle cx="18" cy="19" r="2"/>',
@@ -1507,6 +1489,18 @@
       stopped: rows.filter(function (vehicle) { return vmVehicleMatchesStatus(vehicle, 'stopped'); }).length
     };
   }
+  function vmFleetAssetCounts() {
+    var rows = vmVehicleBaseRows();
+    var seen = Object.create(null);
+    var trailers = 0;
+    rows.forEach(function (vehicle) {
+      var no = String(vehicle.trailer || '').trim();
+      if (!no || seen[no]) return;
+      seen[no] = true;
+      trailers += 1;
+    });
+    return { tractors: rows.length, trailers: trailers };
+  }
   function vmVehicleRuntimeCounts() {
     var rows = vmVehicleBaseRows().filter(function (vehicle) {
       return vmVehicleMatchesStatus(vehicle, vmState.vehicleStatus);
@@ -1882,20 +1876,26 @@
       + '<small>' + esc(warning.reason) + ' · ' + esc(warning.duration) + '</small></span>'
       + '<strong>查看 ›</strong></button></section>';
   }
-  function paintVmWarningTicker() {
-    var host = document.getElementById('vmWarningTickerHost');
-    if (host) host.innerHTML = vmHasLinkedDetail() ? vmWarningTickerHtml() : '';
-    var dock = document.getElementById('vmAlertCarousel');
-    if (!dock) return;
-    var wrap = document.createElement('div');
-    wrap.innerHTML = vmWarningTickerHtml();
-    if (wrap.firstChild) dock.replaceWith(wrap.firstChild);
-  }
   function vmIsHomeRight() {
     return !vmState.warningOpen && !vmState.selectedSite && !vmSelected() && !vmSelectedTask();
   }
   function vmHasLinkedDetail() {
     return !vmState.warningOpen && !vmState.selectedSite && (!!vmSelected() || !!vmSelectedTask());
+  }
+  function vmOverviewDocked() {
+    return vmIsHomeRight() && vmState.overviewCollapsed;
+  }
+  function vmWarningTickerOnMap() {
+    return vmHasLinkedDetail() || vmOverviewDocked();
+  }
+  function paintVmWarningTicker() {
+    var host = document.getElementById('vmWarningTickerHost');
+    if (host) host.innerHTML = vmWarningTickerOnMap() ? vmWarningTickerHtml() : '';
+    var dock = document.getElementById('vmAlertCarousel');
+    if (!dock) return;
+    var wrap = document.createElement('div');
+    wrap.innerHTML = vmWarningTickerHtml();
+    if (wrap.firstChild) dock.replaceWith(wrap.firstChild);
   }
   function vmCanRotateWarningTicker() {
     return vmIsHomeRight() || vmHasLinkedDetail();
@@ -3445,12 +3445,12 @@
   }
   function vmSiteData(name) {
     var rows = {
-      '昆钢': { kind: '装货点', entries: 34, current: 8, average: '48 min', longest: '1h 36min', longStay: 2, plates: ['云A10105 · 已停留 1h 36min', '云A12345 · 已停留 42min', '云A10121 · 已停留 18min'] },
-      '北城': { kind: '卸货点', entries: 29, current: 6, average: '41 min', longest: '1h 16min', longStay: 1, plates: ['云A10103 · 已停留 1h 16min', '云A·F4470 · 已停留 38min', '云A10118 · 已停留 21min'] },
-      '大开门': { kind: '装货点', entries: 22, current: 5, average: '53 min', longest: '1h 28min', longStay: 1, plates: ['云A10111 · 已停留 1h 28min', '云A10129 · 已停留 47min', '云A66666 · 充电 36min'] },
-      '研和': { kind: '卸货点', entries: 31, current: 7, average: '46 min', longest: '1h 12min', longStay: 2, plates: ['云A·D8021 · 已停留 1h 12min', '云A10133 · 已停留 58min', '云A10109 · 已停留 26min'] }
+      '昆钢': { kind: '装货点', entries: 34, current: 8, average: '48 min', longest: '1h 36min', plates: ['云A10105 · 已停留 1h 36min', '云A12345 · 已停留 42min', '云A10121 · 已停留 18min'] },
+      '北城': { kind: '卸货点', entries: 29, current: 6, average: '41 min', longest: '1h 16min', plates: ['云A10103 · 已停留 1h 16min', '云A·F4470 · 已停留 38min', '云A10118 · 已停留 21min'] },
+      '大开门': { kind: '装货点', entries: 22, current: 5, average: '53 min', longest: '1h 28min', plates: ['云A10111 · 已停留 1h 28min', '云A10129 · 已停留 47min', '云A66666 · 充电 36min'] },
+      '研和': { kind: '卸货点', entries: 31, current: 7, average: '46 min', longest: '1h 12min', plates: ['云A·D8021 · 已停留 1h 12min', '云A10133 · 已停留 58min', '云A10109 · 已停留 26min'] }
     };
-    var base = rows[name] || { kind: vmSiteKind(name) === 'load' ? '装货点' : '卸货点', entries: 18, current: vmSiteVehicleCount(name), average: '44 min', longest: '1h 08min', longStay: 1, plates: [] };
+    var base = rows[name] || { kind: vmSiteKind(name) === 'load' ? '装货点' : '卸货点', entries: 18, current: vmSiteVehicleCount(name), average: '44 min', longest: '1h 08min', plates: [] };
     if (vmState.fleet === 'all') return base;
     var ratio = vmState.fleet === 'A车队' ? .52 : .48;
     var plates = base.plates.filter(function (row) {
@@ -3461,7 +3461,6 @@
     return Object.assign({}, base, {
       entries: Math.max(1, Math.round(base.entries * ratio)),
       current: vmSiteVehicleCount(name),
-      longStay: Math.min(base.longStay, plates.length),
       plates: plates
     });
   }
@@ -3469,14 +3468,12 @@
     var name = vmState.selectedSite;
     var site = vmSiteData(name);
     var vehicles = site.plates.map(function (row, index) {
-      return '<li class="' + (index < site.longStay ? 'is-risk' : '') + '"><span>' + esc(row) + '</span><button type="button" onclick="WB.vmOpenSiteVehicle(' + index + ')">定位</button></li>';
+      return '<li><span>' + esc(row) + '</span><button type="button" onclick="WB.vmOpenSiteVehicle(' + index + ')">定位</button></li>';
     }).join('');
     return '<section class="dc-card vm-site-detail">'
       + '<header class="vm-workspace-hd"><div><span>场站实时态势</span><h3>' + esc(name) + ' · ' + esc(site.kind) + '</h3></div><button type="button" class="vm-workspace-close" onclick="WB.vmSiteClose()" aria-label="关闭场站详情">×</button></header>'
       + '<div class="vm-site-body"><div class="vm-site-live"><div><span>当前场内</span><b>' + site.current + '<small> 辆</small></b></div><div><span>今日进场</span><b>' + site.entries + '<small> 辆次</small></b></div><div><span>平均停留</span><b>' + site.average + '</b></div><div><span>最长停留</span><b>' + site.longest + '</b></div></div>'
-      + '<div class="vm-site-callout"><span>长停留车辆</span><b>' + site.longStay + ' 辆需核对现场作业状态</b><em>车辆数和停留时长来自电子围栏进出记录</em></div>'
-      + '<div class="vm-subsection"><header><b>场内车辆</b><span>按停留时长排序</span></header><ul class="vm-site-vehicles">' + vehicles + '</ul></div>'
-      + '<div class="vm-data-note">场站数据只表达车辆聚集与停留事实，不定义场站拥堵。</div></div></section>';
+      + '<div class="vm-subsection"><header><b>场内车辆</b><span>按停留时长排序</span></header><ul class="vm-site-vehicles">' + vehicles + '</ul></div></div></section>';
   }
   function vmMileageTrendHtml(scopeRatio, summary) {
     var dates = ['09/10', '09/11', '09/12', '09/13', '09/14', '09/15', '今日'];
@@ -3666,11 +3663,11 @@
   }
   function vmOpsPanelHtml() {
     var daily = vmDailyTransportData();
-    var collapsed = vmState.overviewCollapsed;
-    var compactSummary = daily.map(function (group) {
-      var shortName = group.key === 'completed' ? '完成' : (group.key === 'transporting' ? '运输中' : '待运');
-      return shortName + group.totalTrips;
-    }).join(' · ');
+    var totalTrips = daily.reduce(function (sum, group) { return sum + group.totalTrips; }, 0);
+    if (vmState.overviewCollapsed) {
+      return '<button type="button" class="vm-overview-rail" onclick="WB.vmToggleOverview()" aria-label="展开运输概览" title="展开运输概览">'
+        + '<i aria-hidden="true">' + dcSvg('<path d="m15 18-6-6 6-6"/>') + '</i><span>运输概览</span><b>' + totalTrips + '</b></button>';
+    }
     var groups = daily.map(function (group) {
       var rows = group.rows.map(function (row) {
         return '<li aria-label="' + esc('分段线路' + row.route + '，货物' + row.cargo + '，' + row.trips + '车次，' + vmTonnage(row.tonnage) + '吨') + '">'
@@ -3685,14 +3682,16 @@
         + '<span class="vm-daily-group-metrics"><strong>' + group.totalTrips + '<small>车次</small></strong><em>' + vmTonnage(group.totalTonnage) + '<small>t</small></em></span></header>'
         + '<ul>' + rows + '</ul></section>';
     }).join('');
-    var toggleIcon = collapsed ? '<path d="m6 9 6 6 6-6"/>' : '<path d="m18 15-6-6-6 6"/>';
-    return '<section class="dc-card vm-ops-panel vm-daily-transport-panel is-docked' + (collapsed ? ' is-collapsed' : '') + '">'
-      + '<header class="vm-workspace-hd vm-daily-head"><div><h3>运输概览</h3>' + (collapsed ? '<span>' + compactSummary + '</span>' : '') + '</div>'
+    return '<section class="dc-card vm-ops-panel vm-daily-transport-panel is-docked">'
+      + '<header class="vm-workspace-hd vm-daily-head"><div><h3>运输概览</h3></div>'
       + '<div class="vm-daily-head-actions">'
-      + '<button class="vm-daily-toggle" type="button" aria-expanded="' + (!collapsed) + '" aria-label="' + (collapsed ? '展开运输概览' : '收起运输概览') + '" title="' + (collapsed ? '展开' : '收起') + '" onclick="WB.vmToggleOverview()">' + dcSvg(toggleIcon) + '</button></div></header>'
-      + (collapsed ? '' : '<div class="vm-ops-body vm-daily-body">' + groups + '</div>') + '</section>';
+      + '<button class="vm-daily-toggle" type="button" aria-expanded="true" aria-label="收起运输概览" title="收起" onclick="WB.vmToggleOverview()">' + dcSvg('<path d="m9 18 6-6-6-6"/>') + '</button></div></header>'
+      + '<div class="vm-ops-body vm-daily-body">' + groups + '</div></section>';
   }
   function vmHomeRightHtml() {
+    if (vmState.overviewCollapsed) {
+      return '<div class="vm-right-home is-overview-collapsed">' + vmOpsPanelHtml() + '</div>';
+    }
     return '<div class="vm-right-home">' + vmOpsPanelHtml() + vmWarningTickerHtml() + '</div>';
   }
   function vmRightPanelHtml() {
@@ -3704,9 +3703,12 @@
   }
   function paintVmRightPanel() {
     var right = document.getElementById('vmRightPanel');
+    var root = document.querySelector('.dc-root.is-vm');
     if (!right) return;
     right.classList.toggle('is-detail-empty', false);
     right.classList.toggle('is-home', vmIsHomeRight());
+    right.classList.toggle('is-overview-collapsed', vmOverviewDocked());
+    if (root) root.classList.toggle('is-overview-collapsed', vmOverviewDocked());
     right.innerHTML = vmRightPanelHtml();
     paintVmWarningTicker();
   }
@@ -3752,7 +3754,10 @@
       left.innerHTML = vmLeftPanelHtml();
     }
     var root = document.querySelector('.dc-root.is-vm');
-    if (root) root.classList.toggle('is-left-collapsed', vmState.leftCollapsed);
+    if (root) {
+      root.classList.toggle('is-left-collapsed', vmState.leftCollapsed);
+      root.classList.toggle('is-overview-collapsed', vmOverviewDocked());
+    }
     paintVmRightPanel();
     paintVmKpis();
     paintVmWarningIndicator();
@@ -3849,9 +3854,13 @@
   function vmKpisHtml() {
     var kpi = vmKpi();
     return kpi.map(function (x) {
+      var body = x.pair
+        ? '<div class="vm-kpi-pair">' + x.pair.map(function (part) {
+            return '<div><span>' + esc(part.label) + '</span><b>' + esc(String(part.value)) + '</b></div>';
+          }).join('') + '<em>' + esc(x.meta) + '</em></div>'
+        : '<div><span>' + esc(x.name) + '</span><b>' + esc(x.value) + '</b><em>' + esc(x.meta) + '</em></div>';
       return '<div class="vm-kpi is-' + x.tint + '" title="' + esc(x.desc) + '">'
-        + '<i>' + vmKpiIcon(x.icon) + '</i><div><span>' + esc(x.name) + '</span><b>' + esc(x.value) + '</b>'
-        + '<em>' + esc(x.meta) + '</em></div></div>';
+        + '<i>' + vmKpiIcon(x.icon) + '</i>' + body + '</div>';
     }).join('');
   }
   function renderMonitorBody() {
@@ -3883,8 +3892,8 @@
       + dcSvg('<path d="m12 2 9 5-9 5-9-5 9-5z"/><path d="m3 12 9 5 9-5M3 17l9 5 9-5"/>') + '<span>地图图层</span><b>' + activeLayerCount + '</b></button>'
       + '<div class="vm-layer-panel" id="vmLayerPanel"' + (vmState.layerOpen ? '' : ' hidden') + '><div class="vm-layer-panel-hd"><b>地图图层</b><span>默认聚焦正在发生的运输</span></div>' + layerMenu + '</div></div>'
       + '</div>'
-      + '<aside class="vm-right is-home" id="vmRightPanel">' + vmRightPanelHtml() + '</aside>'
-      + '<div id="vmWarningTickerHost" class="' + (vmState.leftCollapsed ? 'is-left-collapsed' : '') + '">' + (vmHasLinkedDetail() ? vmWarningTickerHtml() : '') + '</div>'
+      + '<aside class="vm-right is-home' + (vmOverviewDocked() ? ' is-overview-collapsed' : '') + '" id="vmRightPanel">' + vmRightPanelHtml() + '</aside>'
+      + '<div id="vmWarningTickerHost" class="' + (vmState.leftCollapsed ? 'is-left-collapsed' : '') + '">' + (vmWarningTickerOnMap() ? vmWarningTickerHtml() : '') + '</div>'
       + '<div class="vm-legend" id="vmLegend">' + vmLegendHtml() + '</div>'
       + '<div class="vm-zoom"><button type="button" onclick="WB.vmZoom(1)">+</button><button type="button" onclick="WB.vmZoom(-1)">−</button>'
       + '<button type="button" onclick="WB.vmFocus()" title="定位当前车">' + dcSvg('<circle cx="12" cy="12" r="3"/><path d="M12 4v2M12 18v2M4 12h2M18 12h2"/>') + '</button></div>'
@@ -4661,7 +4670,7 @@
     var acc = currentAccount();
     var userName = acc ? acc.name : '杜发财';
     dcTab = 'monitor';
-    return '<div class="dc-root is-vm' + (vmState.leftCollapsed ? ' is-left-collapsed' : '') + '">'
+    return '<div class="dc-root is-vm' + (vmState.leftCollapsed ? ' is-left-collapsed' : '') + (vmOverviewDocked() ? ' is-overview-collapsed' : '') + '">'
       + '<header class="dc-top">'
       + '<button class="dc-brand" type="button" title="进入系统" onclick="WB.enterWorkbench()">' + dcLogo()
       + '<span><span class="dc-brand-name">运输监控中心</span><span class="dc-brand-sub">全球新能源物流解决方案专家</span></span></button>'
@@ -4895,15 +4904,15 @@
     return [
       { id: 'DA-SP01', type: '停车预警', group: 'stop', level: '中', status: '待处理', plate: '云A·J3058', driver: '赵明', phone: '13808710026', taskNo: taskCode(85), route: '北城 → 昆钢', time: TODAY + ' 09:48:00', waitMin: 42, location: '昆磨高速辅路', metricLabel: '当前车速', metric: '0 km/h', reason: '车辆在非业务场景下持续停车已达规则阈值', facts: ['当前位置：昆磨高速辅路', '车辆速度：0 km/h', '不在装卸货点或充电站范围'] },
       { id: 'DA-SP02', type: '停车预警', group: 'stop', level: '中', status: '处理中', plate: '云A·H6612', driver: '陈志远', phone: '13808710025', taskNo: taskCode(84), route: '昆钢 → 研和', time: TODAY + ' 10:16:00', waitMin: 28, location: 'G8511 服务区外侧', metricLabel: '当前车速', metric: '0 km/h', reason: '车辆在非业务场景下持续停车已达规则阈值', facts: ['当前位置：G8511 服务区外侧', '车辆速度：0 km/h', '调度已联系司机核实'] },
-      { id: 'DA-ST01', type: '停车区域预警', group: 'site', level: '中', status: '待处理', plate: '云A10103', driver: '周强', phone: '13808710028', taskNo: taskCode(28), route: '昆钢 → 北城', time: TODAY + ' 08:26:00', waitMin: 76, location: '北城卸货区', metricLabel: '停留区域', metric: '北城卸货区', reason: '车辆在卸货点停留已达规则阈值', facts: ['08:26 到达北城卸货区', '当前仍在卸货区域', '停留时长：1h16min'] },
-      { id: 'DA-ST02', type: '停车区域预警', group: 'site', level: '中', status: '待处理', plate: '云A66666', driver: '冯二', phone: '13808710040', taskNo: taskCode(40), route: '大开门 → 研和', time: TODAY + ' 09:02:00', waitMin: 51, location: '大开门充电站', metricLabel: '停留区域', metric: '大开门充电站', reason: '车辆在充电站停留已达规则阈值', facts: ['09:02 进入大开门充电站', '当前仍在充电站范围', '停留时长：51 min'] },
+      { id: 'DA-ST01', type: '区域停留预警', group: 'site', level: '中', status: '待处理', plate: '云A10103', driver: '周强', phone: '13808710028', taskNo: taskCode(28), route: '昆钢 → 北城', time: TODAY + ' 08:26:00', waitMin: 76, location: '北城卸货区', metricLabel: '停留区域', metric: '北城卸货区', reason: '车辆在卸货点停留已达规则阈值', facts: ['08:26 到达北城卸货区', '当前仍在卸货区域', '停留时长：1h16min'] },
+      { id: 'DA-ST02', type: '区域停留预警', group: 'site', level: '中', status: '待处理', plate: '云A66666', driver: '冯二', phone: '13808710040', taskNo: taskCode(40), route: '大开门 → 研和', time: TODAY + ' 09:02:00', waitMin: 51, location: '大开门充电站', metricLabel: '停留区域', metric: '大开门充电站', reason: '车辆在充电站停留已达规则阈值', facts: ['09:02 进入大开门充电站', '当前仍在充电站范围', '停留时长：51 min'] },
       { id: 'DA-SD01', type: '车速预警', group: 'speed', level: '高', status: '新告警', plate: '云A·E1936', driver: '王磊', phone: '13808710022', taskNo: taskCode(81), route: '北城 → 研和', time: TODAY + ' 14:24:00', waitMin: 2, location: 'G8511 昆磨高速', metricLabel: '当前车速', metric: '86 km/h', reason: '车辆速度达到配置的异常/超速规则（阈值 80 km/h）', facts: ['当前速度：86 km/h', '预警阈值：80 km/h', '持续时间：2 min'] },
       { id: 'DA-WB01', type: '卸货后未上传磅单', group: 'weigh', level: '高', status: '新告警', plate: '云A·F4470', driver: '马旺', phone: '13808710023', taskNo: taskCode(82), route: '昆钢 → 北城', time: TODAY + ' 13:57:00', waitMin: 26, location: '北城卸货地外侧', metricLabel: '磅单状态', metric: '未上传', reason: '司机离开卸货地后超过默认 15 分钟仍未上传卸货磅单', facts: ['13:31 离开北城卸货地', '卸货磅单：未上传', '已超过默认 15 min 阈值'] },
       { id: 'DA-SC01', type: 'SOC预警', group: 'soc', level: '中', status: '待处理', plate: '云A·D8021', driver: '李宏俊', phone: '13808710021', taskNo: taskCode(80), route: '大开门 → 昆钢', time: TODAY + ' 13:52:00', waitMin: 34, location: '昆钢 → 研和途中', metricLabel: '当前 SOC', metric: '18%', reason: '车辆 SOC 低于配置阈值 20%', facts: ['当前 SOC：18%', '预警阈值：20%', '当前任务：运输中'] },
       { id: 'DA-SC02', type: 'SOC预警', group: 'soc', level: '中', status: '待处理', plate: '云A·G2288', driver: '张建华', phone: '13808710024', taskNo: taskCode(83), route: '大开门 → 北城', time: TODAY + ' 14:08:00', waitMin: 18, location: '大开门充电站附近', metricLabel: '当前 SOC', metric: '16%', reason: '车辆 SOC 低于配置阈值 20%', facts: ['当前 SOC：16%', '预警阈值：20%', '距最近充电站 2.4 km'] },
       { id: 'DA-FT01', type: '司机疲劳驾驶', group: 'fatigue', level: '高', status: '新告警', plate: '云A·K4419', driver: '赵明', phone: '13808710027', taskNo: taskCode(86), route: '昆钢 → 北城', time: TODAY + ' 10:18:00', waitMin: 252, location: 'G8511 昆磨高速', metricLabel: '连续驾驶', metric: '4h12min', reason: '连续驾驶已满 4 小时，必须休息后再继续运输', facts: ['连续驾驶时长：4h12min', '规则阈值：连续驾驶满 4 小时必须休息', '当前状态：仍在行驶中，尚未开始休息'] },
       { id: 'DA-SP99', type: '停车预警', group: 'stop', level: '中', status: '已处理', plate: '云A12345', driver: '张三', phone: '13808718888', taskNo: taskCode(18), route: '昆钢 → 北城', time: TODAY + ' 07:51:00', waitMin: 18, location: '昆钢厂区外侧', metricLabel: '当前车速', metric: '42 km/h', reason: '车辆恢复正常行驶后，调度标记已处理', facts: ['07:51 触发预警', '08:09 恢复行驶', '已记录处理结果'] },
-      { id: 'DA-ST99', type: '停车区域预警', group: 'site', level: '中', status: '已忽略', plate: '云A88888', driver: '孙八', phone: '13808710042', taskNo: taskCode(42), route: '昆钢 → 研和', time: TODAY + ' 08:20:00', waitMin: 22, location: '研和卸货区', metricLabel: '停留区域', metric: '研和卸货区', reason: '现场排队卸货，确认无需进一步处理', facts: ['忽略原因：卸货排队属业务停留'] },
+      { id: 'DA-ST99', type: '区域停留预警', group: 'site', level: '中', status: '已忽略', plate: '云A88888', driver: '孙八', phone: '13808710042', taskNo: taskCode(42), route: '昆钢 → 研和', time: TODAY + ' 08:20:00', waitMin: 22, location: '研和卸货区', metricLabel: '停留区域', metric: '研和卸货区', reason: '现场排队卸货，确认无需进一步处理', facts: ['忽略原因：卸货排队属业务停留'] },
       { id: 'DA-FT99', type: '司机疲劳驾驶', group: 'fatigue', level: '高', status: '已处理', plate: '云A·H6612', driver: '陈志远', phone: '13808710025', taskNo: taskCode(84), route: '昆钢 → 研和', time: TODAY + ' 06:40:00', waitMin: 25, location: '玉溪服务区', metricLabel: '连续驾驶', metric: '已休息', reason: '司机完成强制休息后，调度标记已处理', facts: ['06:40 连续驾驶满 4 小时触发', '06:45 停靠服务区休息', '07:05 休息达标后恢复行驶'] }
     ].map(function (row) {
       var item = Object.assign({}, row);
@@ -5650,7 +5659,7 @@
     ].map(function (tab) {
       return '<button class="tab' + (dispatchAlertStatus === tab[0] ? ' active' : '') + '" type="button" onclick="WB.dispatchAlertStatus(\'' + tab[0] + '\')">' + tab[1] + '<span class="count">' + tab[2] + '</span></button>';
     }).join('');
-    var alertTypes = ['全部', '停车预警', '停车区域预警', '车速预警', '卸货后未上传磅单', 'SOC预警', '司机疲劳驾驶'].map(function (name) {
+    var alertTypes = ['全部', '停车预警', '区域停留预警', '车速预警', '卸货后未上传磅单', 'SOC预警', '司机疲劳驾驶'].map(function (name) {
       var id = name === '全部' ? 'all' : name;
       var n = name === '全部' ? openAlertsN : allAlerts.filter(function (a) { return a.type === name && (a.status === '新告警' || a.status === '待处理' || a.status === '处理中'); }).length;
       return '<button class="' + (dispatchAlertType === id ? 'active' : '') + '" type="button" onclick="WB.dispatchAlertType(\'' + esc(id) + '\')">' + name + '<b>' + n + '</b></button>';
@@ -6591,6 +6600,19 @@
     vmToggleOverview: function () {
       vmState.overviewCollapsed = !vmState.overviewCollapsed;
       paintVmRightPanel();
+      if (vmState.overviewCollapsed) {
+        var rail = document.querySelector('.vm-overview-rail');
+        if (rail) rail.focus();
+      } else {
+        window.setTimeout(function () {
+          var toggle = document.querySelector('.vm-daily-toggle');
+          if (toggle) toggle.focus();
+        }, 0);
+      }
+      if (!selectedTaskId && !selectedPlate) vmMapNeedsOverviewFit = true;
+      window.setTimeout(function () {
+        if (dispatchMap && window.AMap) refreshDispatchMarkers(window.AMap);
+      }, 180);
     },
     vmToggleOps: function (forceOpen, kpi) {
       var open = forceOpen === true ? true : (forceOpen === false ? false : !vmIsHomeRight());

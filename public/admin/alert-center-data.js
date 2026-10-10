@@ -703,12 +703,12 @@
           { action: 'UPLOADED', at: demoDay(-1, '08:48:00'), remark: '卸货磅单上传成功' },
           { action: 'RECOVERED', at: demoDay(-1, '08:48:00'), remark: '磅单上传成功' }
         ]),
-      signal({ sourceId: 'live-soc', ruleCode: 'VEHICLE_LOW_SOC', socCycleId: 'SOC-D8021-1', plate: '云A·D8021', vehicleId: 'V021', driverName: '李宏俊', driverId: 'D021', taskId: 'Y20260904000021', route: '大开门 → 昆钢', cargo: '水渣', location: '昆钢方向途中', triggeredAt: demoDay(0, '10:08:00'), sourceStatus: 'active', projectId: 'YX001', projectName: '玉溪项目' },
-        { socCycleId: 'SOC-D8021-1', soc: 18, socSource: 'CAN', chargingStatus: '未充电', telemetryValid: true, lastTelemetryAt: demoDay(0, '10:08:00'), thresholdCandidateStartedAt: demoDay(0, '10:05:00'), evaluatedAt: demoDay(0, '10:08:00') },
-        ['当前 SOC：18%', '数据来源：车辆 CAN/T-BOX', '已持续低于阈值'], [
-          { action: 'SOC_LOW', at: demoDay(0, '10:05:00'), remark: 'SOC 持续低于30%' },
-          { action: 'TRIGGERED', level: '一般', at: demoDay(0, '10:07:00'), remark: 'SOC ≤30% 持续满2分钟' },
-          { action: 'LEVEL_UPGRADED', from: '一般', to: '严重', at: demoDay(0, '10:08:00'), remark: 'SOC 降至18%，升级为严重' }
+      signal({ sourceId: 'live-soc', ruleCode: 'VEHICLE_LOW_SOC', socCycleId: 'SOC-D8021-1', plate: '云A·D8021', vehicleId: 'V021', driverName: '李宏俊', driverId: 'D021', taskId: 'Y20260904000021', route: '大开门 → 昆钢', cargo: '水渣', location: '昆钢方向途中', triggeredAt: demoDay(0, '10:05:00'), sourceStatus: 'active', projectId: 'YX001', projectName: '玉溪项目' },
+        { socCycleId: 'SOC-D8021-1', soc: 18, triggerSoc: 30, socSource: 'CAN', chargingStatus: '未充电', telemetryValid: true, lastTelemetryAt: demoDay(0, '10:08:00'), thresholdCandidateStartedAt: demoDay(0, '10:03:00'), evaluatedAt: demoDay(0, '10:08:00') },
+        ['当前 SOC：18%', '数据来源：车辆 CAN/T-BOX', '已持续低于严重阈值'], [
+          { action: 'SOC_LOW', at: demoDay(0, '10:03:00'), remark: 'SOC降至30%以下，开始持续确认' },
+          { action: 'TRIGGERED', level: '一般', at: demoDay(0, '10:05:00'), remark: 'SOC≤30%持续2分钟，触发一般预警' },
+          { action: 'LEVEL_UPGRADED', from: '一般', to: '严重', at: demoDay(0, '10:08:00'), remark: 'SOC≤20%持续2分钟，升级严重' }
         ]),
       signal({ sourceId: 'live-soc-jitter', ruleCode: 'VEHICLE_LOW_SOC', socCycleId: 'SOC-E1936-JITTER', plate: '云A·E1936', vehicleId: 'V022', driverName: '王磊', driverId: 'D022', taskId: 'Y20260904000022', route: '北城 → 研和', cargo: '铁精粉', location: '昆磨高速', sourceStatus: 'active', projectId: 'YX001', projectName: '玉溪项目' },
         { socCycleId: 'SOC-E1936-JITTER', soc: 29, socSource: 'CAN', chargingStatus: '未充电', telemetryValid: true, lastTelemetryAt: demoDay(0, '10:12:00'), thresholdCandidateStartedAt: demoDay(0, '10:12:00'), evaluatedAt: demoDay(0, '10:12:00') },
@@ -716,8 +716,15 @@
       signal({ sourceId: 'live-soc-stale', ruleCode: 'VEHICLE_LOW_SOC', socCycleId: 'SOC-H3188-STALE', plate: '云A·H3188', vehicleId: 'V033', driverName: '何平', driverId: 'D033', taskId: 'Y20260904000033', route: '北城 → 研和', cargo: '煤炭', location: '昆磨高速', sourceStatus: 'active', projectId: 'YX001', projectName: '玉溪项目' },
         { socCycleId: 'SOC-H3188-STALE', soc: 8, socSource: 'CAN', chargingStatus: '未充电', telemetryValid: false, lastTelemetryAt: demoDay(0, '09:40:00'), evaluatedAt: demoDay(0, '10:12:00') },
         ['SOC 数据已超过有效期'], []),
+      signal({ sourceId: 'live-soc-expired-hold', ruleCode: 'VEHICLE_LOW_SOC', socCycleId: 'SOC-H3188-EXPIRED', plate: '云A·H3188', vehicleId: 'V033', driverName: '何平', driverId: 'D033', taskId: 'Y20260904000033', route: '北城 → 研和', cargo: '煤炭', location: '昆磨高速', triggeredAt: demoDay(0, '09:20:00'), sourceStatus: 'active', wasTriggered: true, finalLevel: '严重', projectId: 'YX001', projectName: '玉溪项目' },
+        { socCycleId: 'SOC-H3188-EXPIRED', soc: 18, triggerSoc: 30, socSource: 'CAN', chargingStatus: '未充电', telemetryValid: false, lastTelemetryAt: demoDay(0, '09:18:00'), thresholdCandidateStartedAt: demoDay(0, '09:16:00'), evaluatedAt: demoDay(0, '10:12:00') },
+        ['车辆SOC数据已过期'], [
+          { action: 'TRIGGERED', level: '一般', at: demoDay(0, '09:18:00'), remark: 'SOC≤30%持续2分钟，触发一般预警' },
+          { action: 'LEVEL_UPGRADED', from: '一般', to: '严重', at: demoDay(0, '09:22:00'), remark: 'SOC≤20%持续2分钟，升级严重' },
+          { action: 'SOC_LOW', at: demoDay(0, '09:28:00'), remark: '车辆SOC数据已过期，暂停按实时电量升级' }
+        ]),
       signal({ sourceId: 'live-soc-charging', ruleCode: 'VEHICLE_LOW_SOC', socCycleId: 'SOC-S1008-CHARGE', plate: '云A·S1008', vehicleId: 'V038', driverName: '罗伟', driverId: 'D038', taskId: 'Y20260904000038', route: '研和 → 北城', cargo: '水泥', location: '北城充电站', triggeredAt: demoDay(0, '09:40:00'), sourceStatus: 'active', projectId: 'YX001', projectName: '玉溪项目' },
-        { socCycleId: 'SOC-S1008-CHARGE', soc: 9, socSource: 'CAN', chargingStatus: '充电中', telemetryValid: true, lastTelemetryAt: demoDay(0, '10:16:00'), thresholdCandidateStartedAt: demoDay(0, '09:30:00'), evaluatedAt: demoDay(0, '10:16:00') },
+        { socCycleId: 'SOC-S1008-CHARGE', soc: 9, triggerSoc: 30, socSource: 'CAN', chargingStatus: '充电中', telemetryValid: true, lastTelemetryAt: demoDay(0, '10:16:00'), thresholdCandidateStartedAt: demoDay(0, '09:30:00'), evaluatedAt: demoDay(0, '10:16:00') },
         ['当前 SOC：9%', '已插枪充电，电量尚未回到恢复线'], [
           { action: 'SOC_LOW', at: demoDay(0, '09:30:00'), remark: 'SOC 持续低于30%' },
           { action: 'TRIGGERED', level: '一般', at: demoDay(0, '09:32:00'), remark: 'SOC ≤30% 持续满2分钟' },
@@ -726,13 +733,13 @@
           { action: 'CHARGING_STARTED', at: demoDay(0, '10:05:00'), remark: '车辆开始充电，进入恢复候选，SOC 仍为9%' }
         ]),
       signal({ sourceId: 'history-soc', ruleCode: 'VEHICLE_LOW_SOC', socCycleId: 'SOC-J5501-RECOVER', plate: '云A·J5501', vehicleId: 'V042', driverName: '刘洋', driverId: 'D042', taskId: 'Y20261007000042', route: '景洪水泥厂 → 旧卸料场', cargo: '水泥', location: '景洪城北绕城', triggeredAt: demoDay(-1, '08:12:00'), recoveredAt: demoDay(-1, '11:08:00'), sourceStatus: 'recovered', wasTriggered: true, finalLevel: '紧急', recoverReason: 'SOC ≥ 35% 持续 ≥ 2分钟', projectId: 'JH001', projectName: '景洪项目' },
-        { socCycleId: 'SOC-J5501-RECOVER', soc: 36, socSource: 'CAN', chargingStatus: '充电中', telemetryValid: true, lastTelemetryAt: demoDay(-1, '11:08:00'), thresholdCandidateStartedAt: demoDay(-1, '08:00:00'), recoverCandidateStartedAt: demoDay(-1, '11:05:00'), evaluatedAt: demoDay(-1, '11:08:00') },
+        { socCycleId: 'SOC-J5501-RECOVER', soc: 36, triggerSoc: 30, socSource: 'CAN', chargingStatus: '充电中', telemetryValid: true, lastTelemetryAt: demoDay(-1, '11:08:00'), thresholdCandidateStartedAt: demoDay(-1, '08:00:00'), recoverCandidateStartedAt: demoDay(-1, '11:05:00'), evaluatedAt: demoDay(-1, '11:08:00') },
         ['SOC 已恢复至36%并持续满足恢复时间'], [
-          { action: 'TRIGGERED', level: '一般', at: demoDay(-1, '08:02:00'), remark: 'SOC ≤30% 持续满2分钟' },
-          { action: 'LEVEL_UPGRADED', from: '一般', to: '严重', at: demoDay(-1, '08:30:00'), remark: 'SOC 降至18%' },
-          { action: 'LEVEL_UPGRADED', from: '严重', to: '紧急', at: demoDay(-1, '09:00:00'), remark: 'SOC 降至8%' },
+          { action: 'TRIGGERED', level: '一般', at: demoDay(-1, '08:02:00'), remark: 'SOC≤30%持续2分钟，触发一般预警' },
+          { action: 'LEVEL_UPGRADED', from: '一般', to: '严重', at: demoDay(-1, '08:30:00'), remark: 'SOC≤20%持续2分钟，升级严重' },
+          { action: 'LEVEL_UPGRADED', from: '严重', to: '紧急', at: demoDay(-1, '09:00:00'), remark: 'SOC≤10%持续2分钟，升级紧急' },
           { action: 'CHARGING_STARTED', at: demoDay(-1, '09:20:00'), remark: '开始充电' },
-          { action: 'RECOVERED', at: demoDay(-1, '11:08:00'), remark: 'SOC ≥35% 持续满2分钟' }
+          { action: 'RECOVERED', at: demoDay(-1, '11:08:00'), remark: 'SOC≥35%持续2分钟，事件恢复' }
         ]),
       signal({ sourceId: 'live-fatigue', ruleCode: 'DRIVER_FATIGUE', drivingCycleId: 'DC-D021-TODAY-01', plate: '云A·D8021', vehicleId: 'V021', driverName: '李宏俊', driverId: 'D021', taskId: 'Y20260904000021', route: '大开门 → 昆钢', cargo: '水渣', location: '昆磨高速辅路', triggeredAt: demoDay(0, '10:12:00'), sourceStatus: 'active', projectId: 'YX001', projectName: '玉溪项目' },
         { drivingCycleId: 'DC-D021-TODAY-01', drivingStartedAt: demoDay(0, '06:00:00'), continuousDrivingMinutes: 252, currentSpeed: 63, drivingState: 'driving', parkingStartedAt: null, continuousParkingMinutes: 0, driverBindingStartedAt: demoDay(0, '05:55:00'), drivingCycleActive: true, telemetryValid: true, lastTelemetryAt: demoDay(0, '10:12:00'), evaluatedAt: demoDay(0, '10:12:00'), driverChanged: false },
@@ -1829,7 +1836,7 @@
       if (event.ruleCode === 'VEHICLE_OVERSPEED') appendSpeedSeedLogs(logs, event, result.timeline);
       else addSeedLogs(logs, event, currentSignal.history);
     });
-    return { version: 8, rules: rules, events: events, logs: logs, parkingCycles: {} };
+    return { version: 9, rules: rules, events: events, logs: logs, parkingCycles: {} };
   }
 
   function migrateVeryOldRules(rules) {
@@ -2155,7 +2162,12 @@
       events = replacedLate.events;
       logs = replacedLate.logs;
     }
-    return { version: 8, rules: rules, events: events, logs: logs, parkingCycles: saved.parkingCycles && typeof saved.parkingCycles === 'object' ? saved.parkingCycles : {} };
+    if (!saved.version || saved.version < 9) {
+      var replacedSoc = replaceTypedSeed(events, logs, seeded, ['VEHICLE_LOW_SOC']);
+      events = replacedSoc.events;
+      logs = replacedSoc.logs;
+    }
+    return { version: 9, rules: rules, events: events, logs: logs, parkingCycles: saved.parkingCycles && typeof saved.parkingCycles === 'object' ? saved.parkingCycles : {} };
   }
   function replaceTypedSeed(events, logs, seeded, codes) {
     var drop = {};

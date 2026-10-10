@@ -331,13 +331,8 @@
     return '连续异常停车 ≥ ' + current.threshold + '分钟';
   }
   function summaryMetric(type, event) {
-    var metrics = event.metrics || {};
-    if (type.code === 'TRANSPORT_PARKING') return { label: '停车时长', value: parkingDurationText(event) };
-    if (type.code === 'AREA_STAY_TIMEOUT') return { label: event.eventStatus === '已恢复' ? '最终停留时长' : '已停留', value: areaStayDurationText(event) };
-    if (type.code === 'VEHICLE_OVERSPEED') return { label: '连续超速', value: speedDurationLabel(speedSeconds(event)) };
-    if (type.code === 'UNLOAD_WEIGHBILL_MISSING') return { label: '已超时', value: metricText(metrics.waitingMinutes) };
-    if (type.code === 'VEHICLE_LOW_SOC') return { label: '当前SOC', value: metrics.soc == null ? '—' : metrics.soc + '%' };
-    return { label: '连续驾驶', value: metricText(metrics.continuousDrivingMinutes) };
+    if (type && type.headline) return type.headline(event);
+    return { label: '告警', value: '—' };
   }
   function weighbillStatusText(metrics) {
     metrics = metrics || {};
@@ -384,7 +379,7 @@
       case 'unloadLocation': return esc(metrics.unloadLocation || event.location || '—');
       case 'unloadDepartedAt': return esc(metrics.unloadDepartedAt || '—');
       case 'departSource': return esc(store() && store().departSourceText ? store().departSourceText(metrics.departTimeSource) : (metrics.departTimeSource || '—'));
-      case 'soc': return metrics.soc == null ? '—' : esc(metrics.soc + '%');
+      case 'soc': return metrics.telemetryValid === false ? esc('已过期') : (metrics.soc == null ? '—' : esc(metrics.soc + '%'));
       case 'chargingStatus': return esc(chargingText(metrics));
       case 'socDataAt': return esc(metrics.lastTelemetryAt || '—');
       case 'continuousDriving': return esc(metricText(metrics.continuousDrivingMinutes));
@@ -1021,93 +1016,581 @@
     return JSON.stringify(common);
   }
 
-  function kv(label, value) { return '<div><dt>' + esc(label) + '</dt><dd>' + (value == null || value === '' ? '—' : value) + '</dd></div>'; }
   function sectionHtml(title, inner) { return '<section class="detail-section"><div class="detail-section-title">' + title + '</div>' + inner + '</section>'; }
-  function objectSection(type, event) {
-    var metrics = event.metrics || {};
-    var org = type.code === 'TRANSPORT_PARKING' ? (event.departmentName || event.projectName) : event.projectName;
-    return sectionHtml('对象信息', '<dl class="ac-kv">'
-      + kv('车牌号', esc(event.plate)) + kv('司机', esc(event.driverName)) + kv(type.orgLabel, esc(org || '—'))
-      + kv('任务单', taskLink(event.taskId)) + kv('线路', esc(event.route || '—')) + kv('货物', esc(event.cargo || '—'))
-      + kv('当前位置', esc(event.location || '—'))
-      + (type.code === 'DRIVER_FATIGUE' ? kv('驾驶周期', esc(event.drivingCycleId || metrics.drivingCycleId || '—')) : '')
-      + '</dl>');
+  function clockText(stamp) {
+    var match = String(stamp || '').match(/(\d{2}:\d{2})/);
+    return match ? match[1] : '—';
   }
-  function businessSection(type, event) {
-    var metrics = event.metrics || {};
-    var rows = '';
-    if (type.code === 'TRANSPORT_PARKING') {
-      rows = kv('停车开始时间', esc(parkingStartAt(event) || '—')) + kv('停车时长', esc(parkingDurationText(event))) + kv('停车结束时间', esc(event.recoveredAt || '—'))
-        + kv('当前车速', esc(uiSpeed(metrics.speed))) + kv('任务状态', esc(metrics.taskNode || metrics.taskStatus || '—'))
-        + kv('装货作业', esc(yesNo(metrics.loadingScene === true))) + kv('卸货作业', esc(yesNo(metrics.unloadingScene === true))) + kv('充电状态', esc(yesNo(metrics.charging === true)));
-      return sectionHtml('停车信息', '<dl class="ac-kv">' + rows + '</dl>');
+  function preciseSpan(start, end) {
+    var from = new Date(String(start || '').replace(/-/g, '/')).getTime();
+    var to = new Date(String(end || '').replace(/-/g, '/')).getTime();
+    if (!isFinite(from) || !isFinite(to) || to < from) return '';
+    var total = Math.round((to - from) / 1000);
+    var minutes = Math.floor(total / 60);
+    var seconds = total % 60;
+    if (minutes >= 60) {
+      var hours = Math.floor(minutes / 60);
+      var remain = minutes % 60;
+      return remain ? (hours + '小时' + remain + '分钟') : (hours + '小时');
     }
-    if (type.code === 'AREA_STAY_TIMEOUT') {
-      var relation = store() && store().areaRelationText ? store().areaRelationText(event.areaRelation || metrics.areaRelation) : (event.areaRelation || '未识别');
-      return sectionHtml('区域信息', '<dl class="ac-kv">'
-        + kv('围栏名称', esc(event.fenceName || metrics.fenceName || '—')) + kv('围栏类型', esc(event.fenceType || metrics.fenceType || '—'))
-        + kv('进入围栏时间', esc(event.enterTime || metrics.enteredAt || '—')) + kv('离开围栏时间', esc(event.leaveTime || '—'))
-        + kv('当前运输阶段', esc(event.transportStage || '—')) + kv('停留时长', esc(areaStayDurationText(event)))
-        + kv('当前速度', metrics.currentSpeed == null ? '—' : esc(metrics.currentSpeed + ' km/h')) + kv('与当前任务关系', esc(relation))
-        + '</dl>');
-    }
-    if (type.code === 'VEHICLE_OVERSPEED') {
-      return sectionHtml('超速信息', '<dl class="ac-kv">'
-        + kv('当前车速', esc(uiSpeed(metrics.speed))) + kv('最高车速', esc(uiSpeed(event.maxSpeed != null ? event.maxSpeed : metrics.maxSpeed)))
-        + kv('平均车速', esc(uiSpeed(event.avgSpeed != null ? event.avgSpeed : metrics.avgSpeed))) + kv('连续超速时长', esc(speedDurationLabel(speedSeconds(event))))
-        + kv('超速开始时间', esc(speedStartAt(event) || '—')) + kv('速度来源', esc(speedSourceText(event.speedSource || metrics.speedSource)))
-        + kv('最后数据时间', esc(event.lastDataAt || metrics.lastDataAt || '—')) + '</dl>');
-    }
-    if (type.code === 'UNLOAD_WEIGHBILL_MISSING') {
-      return sectionHtml('卸货与磅单', '<dl class="ac-kv">'
-        + kv('卸货地', esc(metrics.unloadLocation || event.location || '—')) + kv('到达时间', esc(metrics.unloadArrivedAt || '—'))
-        + kv('离开时间', esc(metrics.unloadDepartedAt || '—')) + kv('离场判断来源', esc(store() && store().departSourceText ? store().departSourceText(metrics.departTimeSource) : '—'))
-        + kv('磅单状态', esc(weighbillStatusText(metrics))) + kv('是否已上传', esc(yesNo(metrics.weighbillUploaded === true)))
-        + kv('上传时间', esc(metrics.uploadedAt || '—')) + kv('是否无需磅单', esc(yesNo(metrics.weighbillNotRequired === true)))
-        + '</dl>');
-    }
-    if (type.code === 'VEHICLE_LOW_SOC') {
-      var fresh = metrics.telemetryValid === false ? '数据已过期' : '有效';
-      return sectionHtml('电量状态', '<dl class="ac-kv">'
-        + kv('当前SOC', metrics.soc == null ? '—' : esc(metrics.soc + '%')) + kv('充电状态', esc(chargingText(metrics)))
-        + kv('SOC数据时间', esc(metrics.lastTelemetryAt || '—')) + kv('数据来源', esc(metrics.socSource || '—'))
-        + kv('数据是否有效', esc(fresh)) + '</dl>');
-    }
-    return sectionHtml('连续驾驶周期', '<dl class="ac-kv">'
-      + kv('周期开始时间', esc(metrics.drivingStartedAt || '—')) + kv('连续驾驶时长', esc(metricText(metrics.continuousDrivingMinutes)))
-      + kv('当前车速', esc(uiSpeed(metrics.currentSpeed))) + kv('当前停车时长', esc(metricText(metrics.continuousParkingMinutes || 0)))
-      + kv('最近有效休息', esc(metrics.lastEffectiveRestAt || '—')) + kv('数据更新时间', esc(metrics.lastTelemetryAt || '—'))
-      + kv('数据是否有效', esc(metrics.telemetryValid === false ? '驾驶数据不足' : '有效')) + '</dl>');
+    if (!minutes) return seconds + '秒';
+    return seconds ? (minutes + '分' + seconds + '秒') : (minutes + '分钟');
   }
-  function alertSection(type, event) {
-    var recovery = ((event.ruleSnapshot || {}).recoveryConfig || {}).description || '—';
-    var facts = (event.facts || []).map(function (fact) { return '<span>' + esc(fact) + '</span>'; }).join('');
-    return sectionHtml('告警与规则', '<dl class="ac-kv">'
-      + kv('告警等级', levelBadge(displayLevel(event))) + kv('事件状态', eventBadge(type, event)) + kv('处理状态', handleBadge(event.handleStatus))
-      + kv('告警时间', esc(event.triggeredAt || '—')) + kv('恢复时间', esc(event.recoveredAt || '—'))
-      + kv('命中规则', esc((event.ruleSnapshot || {}).ruleName || event.ruleName || '—'))
-      + kv('触发条件', esc(event.triggerCondition || thresholdText(event))) + kv('恢复条件', esc(recovery))
-      + kv('恢复原因', esc(event.recoverReason || '—'))
-      + '</dl>' + (facts ? '<div class="ac-facts"><b>监控事实</b>' + facts + '</div>' : ''));
+  function snapshotLevel(event, name) {
+    return (((event.ruleSnapshot || {}).levels) || []).filter(function (item) {
+      return item.level === name && item.enabled !== false;
+    })[0] || null;
   }
-  var ACTION_TITLES = {
-    STILL_STARTED: '开始异常停车', TRIGGERED: '告警触发', ALERT_CREATED: '触发预警', LEVEL_UPGRADED: '告警升级', LEVEL_UPGRADE: '升级预警',
-    LEVEL_DOWNGRADED: '告警降级', ACKNOWLEDGED: '告警知悉', HANDLING_STARTED: '人工开始处理', HANDLED: '人工处理完成', MANUAL_HANDLE: '人工处理',
-    ENTER_FENCE: '进入围栏', LEAVE_FENCE: '离开围栏', AUTO_RECOVER: '自动恢复', RECOVERED: '告警恢复', SPEED_START: '开始超速',
-    ARRIVED_UNLOAD: '到达卸货地', DEPARTED_UNLOAD: '离开卸货地', UPLOADED: '磅单上传成功', NO_WEIGHBILL: '确认无需磅单',
-    SOC_LOW: '进入低SOC', CHARGING_STARTED: '开始充电', DRIVE_STARTED: '开始驾驶', SHORT_STOP: '短暂停车', DRIVE_RESUMED: '恢复驾驶',
-    REST_STARTED: '开始休息', DRIVER_CHANGED: '驾驶员变更'
+  function currentLevelConfig(event) { return snapshotLevel(event, displayLevel(event)) || snapshotLevel(event, event.level); }
+  function generalLevelConfig(event) { return snapshotLevel(event, '一般'); }
+  function metricsOf(event) { return event.metrics || {}; }
+  function socConfirmMinutes(event) {
+    var minutes = Number(((event.ruleSnapshot || {}).confirmConfig || {}).confirmMinutes);
+    return isFinite(minutes) && minutes > 0 ? minutes : 2;
+  }
+  function socRecoverSentence(event) {
+    var recovery = (event.ruleSnapshot || {}).recoveryConfig || {};
+    var soc = recovery.recoverSoc != null ? recovery.recoverSoc : 35;
+    var minutes = recovery.recoverDurationMinutes != null ? recovery.recoverDurationMinutes : 2;
+    return 'SOC ≥' + soc + '%并持续' + minutes + '分钟';
+  }
+  function fatigueRestMinutes(event) {
+    var minutes = Number(((event.ruleSnapshot || {}).recoveryConfig || {}).restThresholdMinutes);
+    return isFinite(minutes) && minutes > 0 ? minutes : 20;
+  }
+  function levelHeldText(event) {
+    var metrics = metricsOf(event);
+    var start = metrics.thresholdCandidateStartedAt || event.currentLevelTriggerTime || event.triggeredAt;
+    var end = event.recoveredAt || metrics.evaluatedAt || metrics.lastTelemetryAt;
+    return preciseSpan(start, end) || '—';
+  }
+  function departLabel(code) {
+    if (code === 'GEOFENCE') return '电子围栏';
+    if (code === 'DRIVER') return '司机确认离场';
+    if (code === 'MANUAL') return '人工修正';
+    return '—';
+  }
+  function runStatusText(metrics) {
+    metrics = metrics || {};
+    if (metrics.charging === true || metrics.chargingStatus === '充电中') return '充电中';
+    if (metrics.loadingScene === true) return '装货作业';
+    if (metrics.unloadingScene === true) return '卸货作业';
+    var speed = Number(metrics.speed != null ? metrics.speed : metrics.currentSpeed);
+    if (!isFinite(speed)) return '—';
+    return speed > 5 ? '行驶中' : '驻车静止';
+  }
+  function coordText(event) {
+    var metrics = metricsOf(event);
+    var lng = metrics.lng != null ? metrics.lng : event.lng;
+    var lat = metrics.lat != null ? metrics.lat : event.lat;
+    var known = {
+      '云A·D8021': [102.832116, 24.418532], '云A·E1936': [102.741208, 24.352441],
+      '云A·F4470': [102.668431, 24.501226], '云A·G2288': [102.905774, 24.287615],
+      '云A·H3188': [102.612903, 24.446118], '云A·H6612': [102.978552, 24.533904],
+      '云A·K4419': [100.812446, 22.004318], '云A·J5501': [100.796221, 21.982704],
+      '云A·S1008': [102.854337, 24.369882]
+    };
+    if ((lng == null || lat == null) && known[event.plate]) {
+      lng = known[event.plate][0];
+      lat = known[event.plate][1];
+    }
+    if (lng == null || lat == null || lng === '' || lat === '') return '—';
+    var left = Number(lng);
+    var right = Number(lat);
+    if (!isFinite(left) || !isFinite(right)) return '—';
+    return left.toFixed(6) + ', ' + right.toFixed(6);
+  }
+  function speedLimitValue(event) {
+    var level = currentLevelConfig(event);
+    var limit = level && level.speedThreshold != null ? Number(level.speedThreshold) : 80;
+    return isFinite(limit) ? limit : 80;
+  }
+  function speedHeadline(event) {
+    var metrics = metricsOf(event);
+    var max = Number(event.maxSpeed != null ? event.maxSpeed : metrics.maxSpeed);
+    var current = Number(metrics.speed);
+    if (isFinite(max)) return max;
+    return isFinite(current) ? current : NaN;
+  }
+  function joinSentence(remark, suffix) {
+    var text = String(remark || '').replace(/。$/, '').trim();
+    if (!text) return suffix;
+    if (text.indexOf('触发') >= 0 || text.indexOf('升级') >= 0 || text.indexOf('恢复') >= 0) return text;
+    return text + '，' + suffix;
+  }
+  function dispatchTimelineTitle(log) {
+    var remark = String(log.remark || '');
+    if (log.action === 'ACKNOWLEDGED') return '调度已知悉';
+    if (/联系司机|电话/.test(remark)) return '调度联系司机';
+    if (/车队长/.test(remark)) return '调度通知车队长';
+    if (log.action === 'HANDLING_STARTED') return '调度开始处理';
+    return '调度登记处理';
+  }
+  function isHandleLog(log) {
+    return log.action === 'HANDLED' || log.action === 'MANUAL_HANDLE' || log.action === 'ACKNOWLEDGED' || log.action === 'HANDLING_STARTED';
+  }
+  function timelineDetail(log, title) {
+    if (log.action === 'ENTER_FENCE' || log.action === 'LEAVE_FENCE' || log.action === 'DEPARTED_UNLOAD' || log.action === 'DRIVE_STARTED' || log.action === 'ARRIVED_UNLOAD') return '';
+    var remark = String(log.remark || '').replace(/。$/, '').trim();
+    var head = String(title || '').replace(/[【】·，。,\s]/g, '');
+    var body = remark.replace(/[【】·，。,\s]/g, '');
+    if (!remark || remark === title || head.indexOf(body) >= 0 || body.indexOf(head) >= 0) return '';
+    return remark;
+  }
+
+  var DETAIL_FIELDS = {
+    plate: function (event) { return event.plate || '—'; },
+    driver: function (event) { return event.driverName || '—'; },
+    driverId: function (event) { return event.driverId || '—'; },
+    parkingOrg: function (event) { return event.departmentName || event.projectName || '—'; },
+    projectOrg: function (event) { return event.projectName || '—'; },
+    task: function (event) { return { html: taskLink(event.taskId) }; },
+    route: function (event) { return event.route || '—'; },
+    cargo: function (event) { return event.cargo || '—'; },
+    place: function (event) { return event.location || '—'; },
+    alertTime: function (event) { return event.triggeredAt || '—'; },
+    recoverTime: function (event) { return event.recoveredAt || '尚未恢复'; },
+    ruleName: function (event) { return (event.ruleSnapshot || {}).ruleName || event.ruleName || '—'; },
+    parkingStartedAt: function (event) { return parkingStartAt(event) || '—'; },
+    parkingDuration: function (event) { return parkingDurationText(event); },
+    coordinates: function (event) { return coordText(event); },
+    parkingSpeed: function (event) { return uiSpeed(metricsOf(event).speed); },
+    vehicleRunStatus: function (event) { return runStatusText(metricsOf(event)); },
+    taskStatus: function (event) { return metricsOf(event).taskStatus || metricsOf(event).taskNode || '—'; },
+    fenceName: function (event) { return event.fenceName || metricsOf(event).fenceName || '—'; },
+    fenceType: function (event) { return event.fenceType || metricsOf(event).fenceType || '—'; },
+    enteredAt: function (event) { return event.enterTime || metricsOf(event).enteredAt || '—'; },
+    stayDuration: function (event) { return areaStayDurationText(event); },
+    leftAt: function (event) {
+      var leave = event.leaveTime || metricsOf(event).leaveTime;
+      if (leave) return leave;
+      if (metricsOf(event).insideBusinessArea === true || event.eventStatus === '发生中') return '尚未离开';
+      return '—';
+    },
+    areaSpeed: function (event) {
+      var speed = metricsOf(event).currentSpeed;
+      return speed == null ? '—' : speed + ' km/h';
+    },
+    currentSpeed: function (event) { return uiSpeed(metricsOf(event).speed); },
+    maxSpeed: function (event) { return uiSpeed(event.maxSpeed != null ? event.maxSpeed : metricsOf(event).maxSpeed); },
+    speedLimit: function (event) { return speedLimitValue(event) + ' km/h'; },
+    speedExcess: function (event) {
+      var speed = speedHeadline(event);
+      var limit = speedLimitValue(event);
+      if (!isFinite(speed)) return '—';
+      var excess = Math.round((speed - limit) * 10) / 10;
+      return (excess > 0 ? excess : 0) + ' km/h';
+    },
+    overspeedDuration: function (event) { return speedDurationLabel(speedSeconds(event)); },
+    overspeedStartedAt: function (event) { return speedStartAt(event) || '—'; },
+    unloadNode: function (event) { return metricsOf(event).unloadNodeId || '卸货'; },
+    unloadPlace: function (event) { return metricsOf(event).unloadLocation || event.location || '—'; },
+    arrivedAt: function (event) { return metricsOf(event).unloadArrivedAt || '—'; },
+    departedAt: function (event) { return metricsOf(event).unloadDepartedAt || '—'; },
+    departSource: function (event) { return departLabel(metricsOf(event).departTimeSource); },
+    waiting: function (event) { return metricText(metricsOf(event).waitingMinutes); },
+    billType: function (event) { return metricsOf(event).weighbillType || '卸货磅单'; },
+    billStatus: function (event) { return weighbillStatusText(metricsOf(event)); },
+    uploading: function (event) {
+      var metrics = metricsOf(event);
+      if (metrics.uploading === true || metrics.weighbillStatus === '上传处理中') return '正在上传';
+      return '否';
+    },
+    currentSoc: function (event) {
+      var metrics = metricsOf(event);
+      if (metrics.telemetryValid === false) return { text: '车辆SOC数据已过期', tone: 'danger' };
+      return metrics.soc == null ? '—' : metrics.soc + '%';
+    },
+    triggerSoc: function (event) {
+      var metrics = metricsOf(event);
+      var value = metrics.triggerSoc != null ? metrics.triggerSoc : metrics.soc;
+      if (value == null) return '—';
+      if (metrics.telemetryValid === false && metrics.triggerSoc == null) return { text: value + '%（过期读数，不能当实时电量）', tone: 'danger' };
+      return value + '%';
+    },
+    socLevel: function (event) { return displayLevel(event) || '—'; },
+    charging: function (event) { return chargingText(metricsOf(event)); },
+    socSource: function (event) {
+      var source = metricsOf(event).socSource;
+      if (source === 'GPS') return 'GPS';
+      if (source === 'CAN') return '车辆 CAN/T-BOX';
+      return source || '—';
+    },
+    socUpdatedAt: function (event) { return metricsOf(event).lastTelemetryAt || '—'; },
+    socValid: function (event) {
+      if (metricsOf(event).telemetryValid === false) return { text: '车辆SOC数据已过期', tone: 'danger' };
+      return '有效';
+    },
+    levelDuration: function (event) { return levelHeldText(event); },
+    driveStartedAt: function (event) { return metricsOf(event).drivingStartedAt || '—'; },
+    driveDuration: function (event) { return metricText(metricsOf(event).continuousDrivingMinutes); },
+    fatigueSpeed: function (event) { return uiSpeed(metricsOf(event).currentSpeed); },
+    lastStopAt: function (event) { return metricsOf(event).parkingStartedAt || '当前未停车'; },
+    lastStopDuration: function (event) { return metricText(metricsOf(event).continuousParkingMinutes || 0); },
+    cycleId: function (event) { return event.drivingCycleId || metricsOf(event).drivingCycleId || '—'; },
+    fatigueUpdatedAt: function (event) { return metricsOf(event).lastTelemetryAt || '—'; }
   };
-  function logTitle(log) {
-    if (log.action === 'ALERT_CREATED' || log.action === 'TRIGGERED') return '触发' + (log.toLevel || '') + '预警';
-    if (log.action === 'LEVEL_UPGRADE' || log.action === 'LEVEL_UPGRADED') return '升级为' + (log.toLevel || '') + '预警';
-    if (log.action === 'RECOVERED') return '事件恢复';
-    return ACTION_TITLES[log.action] || log.action;
+  var OVERVIEW_FIELDS = [
+    { key: 'alertTime', label: '告警时间' },
+    { key: 'recoverTime', label: '恢复时间' },
+    { key: 'ruleName', label: '命中规则' }
+  ];
+  function vehicleObject(orgKey, orgLabel) {
+    return [
+      { key: 'plate', label: '车牌号' },
+      { key: 'driver', label: '司机' },
+      { key: orgKey, label: orgLabel },
+      { key: 'task', label: '关联任务单' },
+      { key: 'route', label: '线路' },
+      { key: 'cargo', label: '货物' },
+      { key: 'place', label: '当前位置' }
+    ];
   }
-  function timelineHtml(event) {
-    return (store().getLogs(event.id) || []).map(function (log) {
-      return '<li class="is-' + String(log.action || '').toLowerCase() + '"><i></i><div><time>' + esc(log.operatedAt) + '</time><b>' + esc(logTitle(log)) + '</b><p>' + esc(log.remark || '') + (log.operator ? '<span> · ' + esc(log.operator) + '</span>' : '') + '</p></div></li>';
-    }).join('') || '<li><i></i><div><b>暂无时间轴</b></div></li>';
+  var ALERT_TYPE_CONFIG = {
+    TRANSPORT_PARKING: {
+      objectSchema: vehicleObject('parkingOrg', '所属部门'),
+      detailSchema: [
+        { key: 'parkingStartedAt', label: '停车开始时间' },
+        { key: 'parkingDuration', label: '当前持续停车时长' },
+        { key: 'place', label: '停车位置' },
+        { key: 'coordinates', label: '经纬度' },
+        { key: 'parkingSpeed', label: '当前速度' },
+        { key: 'vehicleRunStatus', label: '当前车辆状态' },
+        { key: 'parkingOrg', label: '所属部门' },
+        { key: 'task', label: '关联任务单' },
+        { key: 'taskStatus', label: '当前任务状态' }
+      ],
+      headline: function (event) { return { label: '停车时长', value: parkingDurationText(event) }; },
+      buildTriggerReason: function (event) {
+        var general = generalLevelConfig(event);
+        var current = currentLevelConfig(event);
+        var generalMinutes = general && general.threshold != null ? general.threshold : 30;
+        var lines = ['车辆连续停车 ' + parkingDurationText(event) + '，当前规则一般预警阈值为 ' + generalMinutes + ' 分钟，已满足停车预警条件。'];
+        if (current && displayLevel(event) !== '一般' && current.threshold != null) {
+          lines.push('当前等级为' + displayLevel(event) + '，对应阈值为 ' + current.threshold + ' 分钟。');
+        }
+        return lines;
+      },
+      timelineTitle: function (log, event) {
+        if (log.action === 'STILL_STARTED') return '开始持续停车' + (event.location ? ' · ' + event.location : '');
+        if (log.action === 'TRIGGERED' || log.action === 'ALERT_CREATED') return '连续停车达到阈值，触发' + (log.toLevel || '一般') + '预警';
+        if (log.action === 'LEVEL_UPGRADE' || log.action === 'LEVEL_UPGRADED') return '升级' + (log.toLevel || '');
+        if (log.action === 'RECOVERED') return '车辆恢复行驶，事件恢复';
+        if (isHandleLog(log)) return dispatchTimelineTitle(log);
+        return log.remark || '停车状态更新';
+      }
+    },
+    AREA_STAY_TIMEOUT: {
+      objectSchema: vehicleObject('projectOrg', '所属项目'),
+      detailSchema: [
+        { key: 'fenceName', label: '围栏名称' },
+        { key: 'fenceType', label: '围栏类型' },
+        { key: 'enteredAt', label: '进入区域时间' },
+        { key: 'stayDuration', label: '当前停留时长' },
+        { key: 'leftAt', label: '离开区域时间' },
+        { key: 'place', label: '当前车辆位置' },
+        { key: 'areaSpeed', label: '当前速度' },
+        { key: 'projectOrg', label: '所属项目' },
+        { key: 'task', label: '关联任务单' }
+      ],
+      headline: function (event) { return { label: event.eventStatus === '已恢复' ? '最终停留时长' : '已停留', value: areaStayDurationText(event) }; },
+      buildTriggerReason: function (event) {
+        var fence = event.fenceName || metricsOf(event).fenceName || '业务区域';
+        var entered = clockText(event.enterTime || metricsOf(event).enteredAt);
+        var current = currentLevelConfig(event);
+        var threshold = current && current.threshold != null ? current.threshold : '—';
+        return ['车辆于 ' + entered + ' 进入【' + fence + '】，已连续停留 ' + areaStayDurationText(event) + '，当前等级阈值为 ' + threshold + ' 分钟，满足区域停留预警条件。'];
+      },
+      timelineTitle: function (log, event) {
+        var fence = event.fenceName || metricsOf(event).fenceName || '区域';
+        if (log.action === 'ENTER_FENCE') return '进入【' + fence + '】';
+        if (log.action === 'LEAVE_FENCE') return '离开【' + fence + '】';
+        if (log.action === 'ALERT_CREATED' || log.action === 'TRIGGERED') return joinSentence(log.remark, '触发' + (log.toLevel || '一般') + '预警');
+        if (log.action === 'LEVEL_UPGRADE' || log.action === 'LEVEL_UPGRADED') return joinSentence(log.remark, '升级' + (log.toLevel || ''));
+        if (log.action === 'AUTO_RECOVER' || log.action === 'RECOVERED') return '离开区域，事件恢复';
+        if (isHandleLog(log)) return dispatchTimelineTitle(log);
+        return log.remark || '区域停留状态更新';
+      }
+    },
+    VEHICLE_OVERSPEED: {
+      objectSchema: vehicleObject('projectOrg', '所属项目'),
+      detailSchema: [
+        { key: 'currentSpeed', label: '当前车速' },
+        { key: 'maxSpeed', label: '本次最高车速' },
+        { key: 'speedLimit', label: '规则限速值' },
+        { key: 'speedExcess', label: '超出速度' },
+        { key: 'overspeedDuration', label: '连续超速时长' },
+        { key: 'overspeedStartedAt', label: '超速开始时间' },
+        { key: 'place', label: '当前/发生位置' },
+        { key: 'projectOrg', label: '所属项目' },
+        { key: 'task', label: '关联任务单' }
+      ],
+      headline: function (event) { return { label: '连续超速', value: speedDurationLabel(speedSeconds(event)) }; },
+      buildTriggerReason: function (event) {
+        var speed = speedHeadline(event);
+        var limit = speedLimitValue(event);
+        return ['车辆当前/本次最高速度 ' + (isFinite(speed) ? uiSpeed(speed) : '—') + '，规则限速 ' + limit + ' km/h，连续超速 ' + speedDurationLabel(speedSeconds(event)) + '，满足当前等级车速预警条件。'];
+      },
+      timelineLead: function (event) {
+        var levels = [];
+        (store().getLogs(event.id) || []).slice().sort(function (a, b) {
+          return String(a.operatedAt || '').localeCompare(String(b.operatedAt || ''));
+        }).forEach(function (log) {
+          var level = log.toLevel;
+          if (!level) return;
+          if (log.action !== 'ALERT_CREATED' && log.action !== 'TRIGGERED' && log.action !== 'LEVEL_UPGRADE' && log.action !== 'LEVEL_UPGRADED') return;
+          if (levels.indexOf(level) < 0) levels.push(level);
+        });
+        if (levels.length < 2) return '';
+        return '同一条超速事件内升级：' + levels.join(' → ');
+      },
+      timelineTitle: function (log) {
+        if (log.action === 'SPEED_START') return '开始连续超速';
+        if (log.action === 'ALERT_CREATED' || log.action === 'TRIGGERED') return '触发' + (log.toLevel || '一般') + '预警';
+        if (log.action === 'LEVEL_UPGRADE' || log.action === 'LEVEL_UPGRADED') return '升级' + (log.toLevel || '');
+        if (log.action === 'RECOVERED') return '车速回到恢复条件，事件恢复';
+        if (isHandleLog(log)) return dispatchTimelineTitle(log);
+        return log.remark || '车速状态更新';
+      }
+    },
+    UNLOAD_WEIGHBILL_MISSING: {
+      objectSchema: vehicleObject('projectOrg', '所属项目'),
+      detailSchema: [
+        { key: 'task', label: '任务单号' },
+        { key: 'unloadNode', label: '卸货节点' },
+        { key: 'unloadPlace', label: '卸货地' },
+        { key: 'arrivedAt', label: '到达卸货地时间' },
+        { key: 'departedAt', label: '离开卸货地时间' },
+        { key: 'departSource', label: '离场时间来源' },
+        { key: 'waiting', label: '已超时时长' },
+        { key: 'billType', label: '磅单类型' },
+        { key: 'billStatus', label: '当前磅单状态' },
+        { key: 'uploading', label: '是否正在上传' },
+        { key: 'driver', label: '当前司机' },
+        { key: 'plate', label: '当前车辆' }
+      ],
+      headline: function (event) { return { label: '已超时', value: metricText(metricsOf(event).waitingMinutes) }; },
+      buildTriggerReason: function (event) {
+        var metrics = metricsOf(event);
+        var place = metrics.unloadLocation || event.location || '卸货地';
+        var left = clockText(metrics.unloadDepartedAt);
+        var current = currentLevelConfig(event);
+        var threshold = current && current.threshold != null ? current.threshold : 15;
+        var uploaded = metrics.weighbillUploaded === true || metrics.weighbillStatus === '已上传';
+        var lead = uploaded
+          ? '车辆已于 ' + left + ' 有效离开【' + place + '】。卸货磅单现已上传成功，本条预警结束。'
+          : '车辆已于 ' + left + ' 有效离开【' + place + '】，当前磅单仍未上传成功，已超过规则规定的 ' + threshold + ' 分钟，因此产生未上传磅单预警。';
+        return [lead, '离场来源：' + departLabel(metrics.departTimeSource)];
+      },
+      timelineTitle: function (log, event) {
+        var source = metricsOf(event).departTimeSource;
+        if (log.action === 'ARRIVED_UNLOAD') return '到达卸货地';
+        if (log.action === 'DEPARTED_UNLOAD') {
+          if (source === 'GEOFENCE') return '电子围栏识别车辆离开卸货地';
+          if (source === 'MANUAL') return '人工修正确认车辆离开卸货地';
+          if (source === 'DRIVER') return '司机确认车辆离开卸货地';
+          return '确认车辆离开卸货地';
+        }
+        if (log.action === 'TRIGGERED' || log.action === 'ALERT_CREATED') return joinSentence(log.remark, '触发' + (log.toLevel || '一般') + '预警');
+        if (log.action === 'LEVEL_UPGRADE' || log.action === 'LEVEL_UPGRADED') return joinSentence(log.remark, '升级' + (log.toLevel || ''));
+        if (log.action === 'UPLOADED') return '司机上传磅单成功';
+        if (log.action === 'NO_WEIGHBILL') return '确认无需磅单，事件恢复';
+        if (log.action === 'RECOVERED') return '事件自动恢复';
+        if (isHandleLog(log)) return dispatchTimelineTitle(log);
+        return log.remark || '磅单状态更新';
+      }
+    },
+    VEHICLE_LOW_SOC: {
+      objectSchema: vehicleObject('projectOrg', '所属项目'),
+      detailSchema: [
+        { key: 'currentSoc', label: '当前SOC' },
+        { key: 'triggerSoc', label: '告警触发时SOC' },
+        { key: 'socLevel', label: '当前告警等级' },
+        { key: 'charging', label: '充电状态' },
+        { key: 'socSource', label: 'SOC数据来源' },
+        { key: 'socUpdatedAt', label: 'SOC最后更新时间' },
+        { key: 'socValid', label: '数据是否有效' },
+        { key: 'place', label: '当前车辆位置' },
+        { key: 'task', label: '当前任务单' },
+        { key: 'driver', label: '当前司机' },
+        { key: 'levelDuration', label: '当前等级持续时间' }
+      ],
+      headline: function (event) {
+        var metrics = metricsOf(event);
+        if (metrics.telemetryValid === false) return { label: '当前SOC', value: '数据已过期' };
+        return { label: '当前SOC', value: metrics.soc == null ? '—' : metrics.soc + '%' };
+      },
+      buildTriggerReason: function (event) {
+        var metrics = metricsOf(event);
+        var recovery = '恢复条件：' + socRecoverSentence(event) + '。';
+        if (metrics.telemetryValid === false) {
+          var last = metrics.soc == null ? '—' : metrics.soc + '%';
+          return {
+            tone: 'danger',
+            paragraphs: [
+              '车辆SOC数据已过期，不能按这份读数继续判断实时电量。',
+              '最后一次回传 SOC 为 ' + last + '，数据时间 ' + (metrics.lastTelemetryAt || '—') + '。',
+              recovery
+            ]
+          };
+        }
+        if (event.eventStatus === '已恢复') {
+          return [
+            '当前SOC为' + (metrics.soc == null ? '—' : metrics.soc + '%') + '。本事件最高达到' + (displayLevel(event) || '—') + '。' + (event.recoverReason ? ('恢复原因：' + event.recoverReason + '。') : ''),
+            recovery
+          ];
+        }
+        var levelName = displayLevel(event) || '一般';
+        var current = currentLevelConfig(event);
+        var threshold = current && current.threshold != null ? current.threshold : '—';
+        var verb = levelName === '一般' ? '因此产生一般预警' : ('因此当前事件升级为' + levelName + '预警');
+        return [
+          '当前SOC为' + (metrics.soc == null ? '—' : metrics.soc + '%') + '，' + levelName + '等级阈值为≤' + threshold + '%，已连续满足该阈值' + levelHeldText(event) + '，持续确认要求为' + socConfirmMinutes(event) + '分钟，' + verb + '。',
+          recovery
+        ];
+      },
+      timelineTitle: function (log) {
+        if (log.action === 'SOC_LOW') return log.remark || 'SOC 进入低电量观察';
+        if (log.action === 'TRIGGERED' || log.action === 'ALERT_CREATED') return joinSentence(log.remark, '触发' + (log.toLevel || '一般') + '预警');
+        if (log.action === 'LEVEL_UPGRADE' || log.action === 'LEVEL_UPGRADED') return joinSentence(log.remark, '升级' + (log.toLevel || ''));
+        if (log.action === 'CHARGING_STARTED') return '开始充电';
+        if (log.action === 'RECOVERED') return joinSentence(log.remark, '事件恢复');
+        if (isHandleLog(log)) return dispatchTimelineTitle(log);
+        return log.remark || '电量状态更新';
+      }
+    },
+    DRIVER_FATIGUE: {
+      objectKicker: '本条告警以司机和连续驾驶周期为主体，车辆只表示当前驾驶关系。',
+      objectSchema: [
+        { key: 'driver', label: '司机', emphasis: true },
+        { key: 'driverId', label: '司机工号' },
+        { key: 'plate', label: '当前驾驶车辆' },
+        { key: 'projectOrg', label: '所属项目' },
+        { key: 'task', label: '当前任务单' },
+        { key: 'cycleId', label: '驾驶周期' },
+        { key: 'place', label: '当前位置' }
+      ],
+      detailSchema: [
+        { key: 'driver', label: '司机姓名', emphasis: true },
+        { key: 'driverId', label: '司机工号' },
+        { key: 'plate', label: '当前驾驶车辆' },
+        { key: 'driveStartedAt', label: '连续驾驶开始时间' },
+        { key: 'driveDuration', label: '当前连续驾驶时长' },
+        { key: 'fatigueSpeed', label: '当前速度' },
+        { key: 'lastStopAt', label: '最近一次停车时间' },
+        { key: 'lastStopDuration', label: '最近停车持续时长' },
+        { key: 'cycleId', label: '当前驾驶周期' },
+        { key: 'task', label: '当前任务单' },
+        { key: 'fatigueUpdatedAt', label: '数据最后更新时间' }
+      ],
+      headline: function (event) { return { label: '连续驾驶', value: metricText(metricsOf(event).continuousDrivingMinutes) }; },
+      handleContext: function (event) {
+        return (event.driverName || '—') + ' · 驾驶 ' + (event.plate || '—') + ' · ' + (event.taskId || '无任务单');
+      },
+      buildTriggerReason: function (event) {
+        var metrics = metricsOf(event);
+        var name = event.driverName || '司机';
+        var levelName = displayLevel(event) || '一般';
+        var current = currentLevelConfig(event);
+        var threshold = current && current.thresholdMinutes != null ? formatHours(current.thresholdMinutes) : '—';
+        var rest = fatigueRestMinutes(event);
+        var rested = Number(metrics.continuousParkingMinutes || 0) >= Number(rest) || event.eventStatus === '已恢复';
+        var reason = event.recoverReason
+          ? ('恢复原因：' + event.recoverReason + '。')
+          : (rested ? '已形成有效休息。' : '期间未形成≥' + rest + '分钟有效休息，因此产生' + levelName + '疲劳驾驶预警。');
+        return [
+          '司机' + name + '当前驾驶周期已连续驾驶' + metricText(metrics.continuousDrivingMinutes) + '，' + levelName + '预警阈值为' + threshold + '小时，' + reason,
+          '有效休息条件：连续非驾驶≥' + rest + '分钟'
+        ];
+      },
+      timelineTitle: function (log) {
+        if (log.action === 'DRIVE_STARTED') return '开始当前驾驶周期';
+        if (log.action === 'SHORT_STOP') return log.remark || '短停，连续驾驶周期继续';
+        if (log.action === 'DRIVE_RESUMED') return '恢复驾驶，连续驾驶周期继续';
+        if (log.action === 'TRIGGERED' || log.action === 'ALERT_CREATED') return joinSentence(log.remark, '触发' + (log.toLevel || '一般') + '预警');
+        if (log.action === 'LEVEL_UPGRADE' || log.action === 'LEVEL_UPGRADED') return joinSentence(log.remark, '升级' + (log.toLevel || ''));
+        if (log.action === 'REST_STARTED') return '开始停车休息';
+        if (log.action === 'DRIVER_CHANGED') return '驾驶员变更，当前驾驶周期结束';
+        if (log.action === 'RECOVERED') return joinSentence(log.remark, '事件恢复');
+        if (isHandleLog(log)) return dispatchTimelineTitle(log);
+        return log.remark || '驾驶周期更新';
+      }
+    }
+  };
+  Object.keys(ALERT_TYPE_CONFIG).forEach(function (code) {
+    var type = TYPES.filter(function (item) { return item.code === code; })[0];
+    var extra = ALERT_TYPE_CONFIG[code];
+    if (!type || !extra) return;
+    Object.keys(extra).forEach(function (key) { type[key] = extra[key]; });
+  });
+
+  function resolveDetailField(event, key) {
+    var resolver = DETAIL_FIELDS[key];
+    var value = resolver ? resolver(event) : '—';
+    if (value && typeof value === 'object') {
+      return {
+        text: value.text == null || value.text === '' ? '—' : String(value.text),
+        html: value.html || '',
+        tone: value.tone || ''
+      };
+    }
+    return { text: value == null || value === '' ? '—' : String(value), html: '', tone: '' };
+  }
+  function schemaRows(schema, event) {
+    return (schema || []).map(function (field) {
+      var resolved = resolveDetailField(event, field.key);
+      var classes = [];
+      if (field.emphasis) classes.push('is-emphasis');
+      if (resolved.tone) classes.push('is-' + resolved.tone);
+      var body = resolved.html || esc(resolved.text);
+      return '<div' + (classes.length ? ' class="' + classes.join(' ') + '"' : '') + '><dt>' + esc(field.label) + '</dt><dd>' + body + '</dd></div>';
+    }).join('');
+  }
+  function schemaSection(title, schema, event, extra) {
+    return sectionHtml(title, (extra || '') + '<dl class="ac-kv">' + schemaRows(schema, event) + '</dl>');
+  }
+  function overviewHtml(type, event) {
+    var metric = summaryMetric(type, event);
+    return sectionHtml('告警概览', '<div class="ac-detail-summary"><span>' + levelBadge(displayLevel(event)) + '<small>告警等级</small></span><span>' + eventBadge(type, event) + '<small>事件状态</small></span><span>' + handleBadge(event.handleStatus) + '<small>处理状态</small></span><span><b>' + esc(metric.value) + '</b><small>' + esc(metric.label) + '</small></span></div><dl class="ac-kv ac-overview-meta">' + schemaRows(OVERVIEW_FIELDS, event) + '</dl>');
+  }
+  function objectSection(config, event) {
+    var kicker = config.objectKicker ? '<p class="ac-object-kicker">' + esc(config.objectKicker) + '</p>' : '';
+    return schemaSection('告警对象', config.objectSchema, event, kicker);
+  }
+  function buildBusinessDetail(event, schema) { return schemaSection('业务详情', schema, event); }
+  function triggerSection(config, event) {
+    var built = config.buildTriggerReason ? config.buildTriggerReason(event) : [];
+    var paragraphs = Array.isArray(built) ? built : (built.paragraphs || []);
+    var tone = Array.isArray(built) ? '' : (built.tone || '');
+    var html = '<div class="ac-trigger' + (tone ? ' is-' + tone : '') + '">' + paragraphs.filter(Boolean).map(function (text, index) {
+      return '<p class="' + (index ? 'ac-trigger-note' : 'ac-trigger-lead') + '">' + esc(text) + '</p>';
+    }).join('') + '</div>';
+    return sectionHtml('触发依据', html);
+  }
+  function buildAlertTimeline(event, config) {
+    return (store().getLogs(event.id) || []).slice().sort(function (a, b) {
+      return String(a.operatedAt || '').localeCompare(String(b.operatedAt || ''));
+    }).map(function (log) {
+      var title = config.timelineTitle ? config.timelineTitle(log, event) : (log.remark || '状态更新');
+      return {
+        at: log.operatedAt,
+        action: log.action,
+        title: title,
+        detail: timelineDetail(log, title),
+        operator: log.operator && log.operator !== '系统' ? log.operator : ''
+      };
+    });
+  }
+  function timelineSection(event, config) {
+    var items = buildAlertTimeline(event, config);
+    var lead = config.timelineLead ? config.timelineLead(event) : '';
+    var html = items.map(function (item) {
+      var tone = String(item.action || '').toLowerCase();
+      return '<li class="is-' + esc(tone) + '"><i></i><div><time>' + esc(clockText(item.at)) + '</time><b>' + esc(item.title) + '</b>'
+        + (item.detail || item.operator ? '<p>' + esc(item.detail || '') + (item.operator ? '<span> · ' + esc(item.operator) + '</span>' : '') + '</p>' : '')
+        + '</div></li>';
+    }).join('') || '<li><i></i><div><b>暂无时间线</b></div></li>';
+    return sectionHtml('事件时间线', (lead ? '<p class="ac-timeline-lead">' + esc(lead) + '</p>' : '') + '<ol class="ac-timeline">' + html + '</ol>');
   }
   function handleRecordsHtml(event) {
     var records = event.handleRecords || [];
@@ -1123,13 +1606,18 @@
     var event = store() && store().getEvent(id);
     if (!event) return;
     var type = typeByCode(event.ruleCode || event.alertType);
-    var metric = summaryMetric(type, event);
+    var config = ALERT_TYPE_CONFIG[type.code] || type;
     var canHandle = event.handleStatus !== '已处理';
+    var view = {
+      common: overviewHtml(type, event) + objectSection(config, event),
+      business: buildBusinessDetail(event, config.detailSchema),
+      triggerReason: triggerSection(config, event),
+      timeline: timelineSection(event, config),
+      handlingRecords: event.handleRecords || []
+    };
     var html = '<header class="ac-drawer-header"><div><small>' + esc(event.id) + '</small><h2>' + esc(type.name) + '</h2></div><button type="button" onclick="acCloseDrawer()" aria-label="关闭">×</button></header>'
-      + '<div class="ac-drawer-body"><div class="ac-detail-summary"><span>' + levelBadge(displayLevel(event)) + '<small>告警等级</small></span><span>' + eventBadge(type, event) + '<small>事件状态</small></span><span>' + handleBadge(event.handleStatus) + '<small>处理状态</small></span><span><b>' + esc(metric.value) + '</b><small>' + esc(metric.label) + '</small></span></div>'
-      + objectSection(type, event) + businessSection(type, event) + alertSection(type, event)
-      + sectionHtml('时间轴', '<ol class="ac-timeline">' + timelineHtml(event) + '</ol>')
-      + sectionHtml('历史处理记录', handleRecordsHtml(event))
+      + '<div class="ac-drawer-body">' + view.common + view.business + view.triggerReason + view.timeline
+      + sectionHtml('处理记录', handleRecordsHtml(event))
       + '</div><footer class="ac-drawer-footer"><button class="btn btn-default" type="button" onclick="acCloseDrawer()">关闭</button>'
       + (canHandle ? '<button class="btn btn-primary" type="button" onclick="acHandle(\'' + esc(event.id) + '\')">处理</button>' : '') + '</footer>';
     mountDrawer(html, 'detail');
@@ -1139,17 +1627,19 @@
     var event = store() && store().getEvent(id);
     if (!event) return;
     var type = typeByCode(event.ruleCode || event.alertType);
+    var config = ALERT_TYPE_CONFIG[type.code] || type;
     var metric = summaryMetric(type, event);
     var reasons = type.falseAlarmReasons || [];
+    var context = config.handleContext ? config.handleContext(event) : ((event.plate || '—') + ' · ' + (event.driverName || '—') + ' · ' + (event.taskId || '无任务单'));
     var html = '<header class="ac-drawer-header"><div><small>' + esc(event.id) + '</small><h2>处理告警</h2></div><button type="button" onclick="acCloseDrawer()" aria-label="关闭">×</button></header>'
-      + '<div class="ac-drawer-body"><div class="ac-handle-context"><strong>' + esc(type.name) + '</strong><span>' + esc((event.plate || '—') + ' · ' + (event.driverName || '—') + ' · ' + (event.taskId || '无任务单')) + '</span><p>' + esc(metric.label + ' ' + metric.value) + '</p></div>'
+      + '<div class="ac-drawer-body"><div class="ac-handle-context"><strong>' + esc(type.name) + '</strong><span>' + esc(context) + '</span><p>' + esc(metric.label + ' ' + metric.value) + '</p></div>'
       + '<section class="detail-section"><div class="detail-section-title">处理信息</div><div class="form-grid">'
       + '<div class="form-item"><label class="form-label">处理方式 <span class="req">*</span></label><select class="form-control-text" id="acHandlingType" onchange="acHandleTypeChange()"><option value="">请选择</option>' + (type.handleOptions || []).map(function (item) { return option(item, item, ''); }).join('') + '</select></div>'
       + (type.parkingReasons ? '<div class="form-item"><label class="form-label">停车原因 <span class="req">*</span></label><select class="form-control-text" id="acParkingReason"><option value="">请选择</option>' + type.parkingReasons.map(function (item) { return option(item, item, ''); }).join('') + '</select></div>' : '')
       + '<div class="form-item" id="acFalseAlarmBox" hidden><label class="form-label" id="acReasonLabel">误报原因 <span class="req">*</span></label><select class="form-control-text" id="acFalseAlarmReason"><option value="">请选择</option>' + reasons.map(function (item) { return option(item, item, ''); }).join('') + '</select></div>'
       + '<div class="form-item"><label class="form-label">处理说明 <span class="req">*</span></label><textarea class="form-control-text ac-result" id="acHandlingResult" maxlength="300" placeholder="请输入现场情况、已采取措施及后续安排"></textarea></div>'
       + '<div class="ac-handler-meta"><span>处理人：' + esc(store().operator) + '</span><span>提交时记录处理时间</span></div></div></section>'
-      + ((event.handleRecords || []).length ? sectionHtml('历史处理记录', handleRecordsHtml(event)) : '')
+      + ((event.handleRecords || []).length ? sectionHtml('处理记录', handleRecordsHtml(event)) : '')
       + '<div class="alert alert-info">' + esc(type.handleHint) + '</div></div>'
       + '<footer class="ac-drawer-footer"><button class="btn btn-default" type="button" onclick="acCloseDrawer()">取消</button><button class="btn btn-default" type="button" onclick="acSubmitHandle(false)">提交处理</button><button class="btn btn-primary" type="button" onclick="acSubmitHandle(true)">标记已处理</button></footer>';
     mountDrawer(html, 'handle');
