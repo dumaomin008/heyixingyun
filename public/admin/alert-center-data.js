@@ -9,6 +9,8 @@
   var PROJECT_NAME = '玉溪项目';
   var LEVELS = ['一般', '严重', '紧急'];
   var AREA_STAY_CODE = 'AREA_STAY_TIMEOUT';
+  // Legacy migration compatibility only.
+  // Historical PARKING_AREA data is normalized to AREA_STAY_TIMEOUT.
   var AREA_STAY_LEGACY = 'PARKING_AREA';
   var AREA_TYPES = ['装货区', '卸货区', '充电站', '停车区', '中转区', '其他'];
   var AREA_RELATION_TEXT = { LOAD: '装货地', UNLOAD: '卸货地', TRANSIT: '途经区域', NON_TASK: '非任务区域', UNKNOWN: '未识别' };
@@ -704,27 +706,27 @@
           { action: 'RECOVERED', at: demoDay(-1, '08:48:00'), remark: '磅单上传成功' }
         ]),
       signal({ sourceId: 'live-soc', ruleCode: 'VEHICLE_LOW_SOC', socCycleId: 'SOC-D8021-1', plate: '云A·D8021', vehicleId: 'V021', driverName: '李宏俊', driverId: 'D021', taskId: 'Y20260904000021', route: '大开门 → 昆钢', cargo: '水渣', location: '昆钢方向途中', triggeredAt: demoDay(0, '10:05:00'), sourceStatus: 'active', projectId: 'YX001', projectName: '玉溪项目' },
-        { socCycleId: 'SOC-D8021-1', soc: 18, triggerSoc: 30, socSource: 'CAN', chargingStatus: '未充电', telemetryValid: true, lastTelemetryAt: demoDay(0, '10:08:00'), thresholdCandidateStartedAt: demoDay(0, '10:03:00'), evaluatedAt: demoDay(0, '10:08:00') },
+        { socCycleId: 'SOC-D8021-1', soc: 18, triggerSoc: 30, socSource: 'CAN', chargingStatus: '未充电', telemetryValid: true, lastTelemetryAt: demoDay(0, '10:08:00'), thresholdCandidates: { '一般': demoDay(0, '10:03:00'), '严重': demoDay(0, '10:06:00'), '紧急': null }, evaluatedAt: demoDay(0, '10:08:00') },
         ['当前 SOC：18%', '数据来源：车辆 CAN/T-BOX', '已持续低于严重阈值'], [
           { action: 'SOC_LOW', at: demoDay(0, '10:03:00'), remark: 'SOC降至30%以下，开始持续确认' },
           { action: 'TRIGGERED', level: '一般', at: demoDay(0, '10:05:00'), remark: 'SOC≤30%持续2分钟，触发一般预警' },
           { action: 'LEVEL_UPGRADED', from: '一般', to: '严重', at: demoDay(0, '10:08:00'), remark: 'SOC≤20%持续2分钟，升级严重' }
         ]),
       signal({ sourceId: 'live-soc-jitter', ruleCode: 'VEHICLE_LOW_SOC', socCycleId: 'SOC-E1936-JITTER', plate: '云A·E1936', vehicleId: 'V022', driverName: '王磊', driverId: 'D022', taskId: 'Y20260904000022', route: '北城 → 研和', cargo: '铁精粉', location: '昆磨高速', sourceStatus: 'active', projectId: 'YX001', projectName: '玉溪项目' },
-        { socCycleId: 'SOC-E1936-JITTER', soc: 29, socSource: 'CAN', chargingStatus: '未充电', telemetryValid: true, lastTelemetryAt: demoDay(0, '10:12:00'), thresholdCandidateStartedAt: demoDay(0, '10:12:00'), evaluatedAt: demoDay(0, '10:12:00') },
+        { socCycleId: 'SOC-E1936-JITTER', soc: 29, socSource: 'CAN', chargingStatus: '未充电', telemetryValid: true, lastTelemetryAt: demoDay(0, '10:12:00'), thresholdCandidates: { '一般': demoDay(0, '10:12:00'), '严重': null, '紧急': null }, evaluatedAt: demoDay(0, '10:12:00') },
         ['单点 SOC 29%，尚未持续确认'], []),
       signal({ sourceId: 'live-soc-stale', ruleCode: 'VEHICLE_LOW_SOC', socCycleId: 'SOC-H3188-STALE', plate: '云A·H3188', vehicleId: 'V033', driverName: '何平', driverId: 'D033', taskId: 'Y20260904000033', route: '北城 → 研和', cargo: '煤炭', location: '昆磨高速', sourceStatus: 'active', projectId: 'YX001', projectName: '玉溪项目' },
         { socCycleId: 'SOC-H3188-STALE', soc: 8, socSource: 'CAN', chargingStatus: '未充电', telemetryValid: false, lastTelemetryAt: demoDay(0, '09:40:00'), evaluatedAt: demoDay(0, '10:12:00') },
         ['SOC 数据已超过有效期'], []),
       signal({ sourceId: 'live-soc-expired-hold', ruleCode: 'VEHICLE_LOW_SOC', socCycleId: 'SOC-H3188-EXPIRED', plate: '云A·H3188', vehicleId: 'V033', driverName: '何平', driverId: 'D033', taskId: 'Y20260904000033', route: '北城 → 研和', cargo: '煤炭', location: '昆磨高速', triggeredAt: demoDay(0, '09:20:00'), sourceStatus: 'active', wasTriggered: true, finalLevel: '严重', projectId: 'YX001', projectName: '玉溪项目' },
-        { socCycleId: 'SOC-H3188-EXPIRED', soc: 18, triggerSoc: 30, socSource: 'CAN', chargingStatus: '未充电', telemetryValid: false, lastTelemetryAt: demoDay(0, '09:18:00'), thresholdCandidateStartedAt: demoDay(0, '09:16:00'), evaluatedAt: demoDay(0, '10:12:00') },
+        { socCycleId: 'SOC-H3188-EXPIRED', soc: 18, triggerSoc: 30, socSource: 'CAN', chargingStatus: '未充电', telemetryValid: false, lastTelemetryAt: demoDay(0, '09:18:00'), thresholdCandidates: { '一般': demoDay(0, '09:16:00'), '严重': demoDay(0, '09:20:00'), '紧急': null }, evaluatedAt: demoDay(0, '10:12:00') },
         ['车辆SOC数据已过期'], [
           { action: 'TRIGGERED', level: '一般', at: demoDay(0, '09:18:00'), remark: 'SOC≤30%持续2分钟，触发一般预警' },
           { action: 'LEVEL_UPGRADED', from: '一般', to: '严重', at: demoDay(0, '09:22:00'), remark: 'SOC≤20%持续2分钟，升级严重' },
           { action: 'SOC_LOW', at: demoDay(0, '09:28:00'), remark: '车辆SOC数据已过期，暂停按实时电量升级' }
         ]),
       signal({ sourceId: 'live-soc-charging', ruleCode: 'VEHICLE_LOW_SOC', socCycleId: 'SOC-S1008-CHARGE', plate: '云A·S1008', vehicleId: 'V038', driverName: '罗伟', driverId: 'D038', taskId: 'Y20260904000038', route: '研和 → 北城', cargo: '水泥', location: '北城充电站', triggeredAt: demoDay(0, '09:40:00'), sourceStatus: 'active', projectId: 'YX001', projectName: '玉溪项目' },
-        { socCycleId: 'SOC-S1008-CHARGE', soc: 9, triggerSoc: 30, socSource: 'CAN', chargingStatus: '充电中', telemetryValid: true, lastTelemetryAt: demoDay(0, '10:16:00'), thresholdCandidateStartedAt: demoDay(0, '09:30:00'), evaluatedAt: demoDay(0, '10:16:00') },
+        { socCycleId: 'SOC-S1008-CHARGE', soc: 9, triggerSoc: 30, socSource: 'CAN', chargingStatus: '充电中', telemetryValid: true, lastTelemetryAt: demoDay(0, '10:16:00'), thresholdCandidates: { '一般': demoDay(0, '09:30:00'), '严重': demoDay(0, '09:34:00'), '紧急': demoDay(0, '09:38:00') }, evaluatedAt: demoDay(0, '10:16:00') },
         ['当前 SOC：9%', '已插枪充电，电量尚未回到恢复线'], [
           { action: 'SOC_LOW', at: demoDay(0, '09:30:00'), remark: 'SOC 持续低于30%' },
           { action: 'TRIGGERED', level: '一般', at: demoDay(0, '09:32:00'), remark: 'SOC ≤30% 持续满2分钟' },
@@ -733,7 +735,7 @@
           { action: 'CHARGING_STARTED', at: demoDay(0, '10:05:00'), remark: '车辆开始充电，进入恢复候选，SOC 仍为9%' }
         ]),
       signal({ sourceId: 'history-soc', ruleCode: 'VEHICLE_LOW_SOC', socCycleId: 'SOC-J5501-RECOVER', plate: '云A·J5501', vehicleId: 'V042', driverName: '刘洋', driverId: 'D042', taskId: 'Y20261007000042', route: '景洪水泥厂 → 旧卸料场', cargo: '水泥', location: '景洪城北绕城', triggeredAt: demoDay(-1, '08:12:00'), recoveredAt: demoDay(-1, '11:08:00'), sourceStatus: 'recovered', wasTriggered: true, finalLevel: '紧急', recoverReason: 'SOC ≥ 35% 持续 ≥ 2分钟', projectId: 'JH001', projectName: '景洪项目' },
-        { socCycleId: 'SOC-J5501-RECOVER', soc: 36, triggerSoc: 30, socSource: 'CAN', chargingStatus: '充电中', telemetryValid: true, lastTelemetryAt: demoDay(-1, '11:08:00'), thresholdCandidateStartedAt: demoDay(-1, '08:00:00'), recoverCandidateStartedAt: demoDay(-1, '11:05:00'), evaluatedAt: demoDay(-1, '11:08:00') },
+        { socCycleId: 'SOC-J5501-RECOVER', soc: 36, triggerSoc: 30, socSource: 'CAN', chargingStatus: '充电中', telemetryValid: true, lastTelemetryAt: demoDay(-1, '11:08:00'), thresholdCandidates: { '一般': null, '严重': null, '紧急': null }, recoverCandidateStartedAt: demoDay(-1, '11:05:00'), evaluatedAt: demoDay(-1, '11:08:00') },
         ['SOC 已恢复至36%并持续满足恢复时间'], [
           { action: 'TRIGGERED', level: '一般', at: demoDay(-1, '08:02:00'), remark: 'SOC≤30%持续2分钟，触发一般预警' },
           { action: 'LEVEL_UPGRADED', from: '一般', to: '严重', at: demoDay(-1, '08:30:00'), remark: 'SOC≤20%持续2分钟，升级严重' },
@@ -1400,6 +1402,44 @@
     }), prior);
     return evaluation(matched, m, facts, { maxLevel: matched ? matched.level : null });
   }
+  function emptySocCandidates() {
+    return { '一般': null, '严重': null, '紧急': null };
+  }
+  function migrateSocCandidates(metrics, prior) {
+    var source = Object.assign({}, prior || {}, metrics || {});
+    var candidates = emptySocCandidates();
+    if (source.thresholdCandidates && typeof source.thresholdCandidates === 'object' && !Array.isArray(source.thresholdCandidates)) {
+      candidates = Object.assign(candidates, source.thresholdCandidates);
+    }
+    // Legacy SOC candidate compatibility only.
+    if (!candidates['一般'] && source.thresholdCandidateStartedAt) {
+      candidates['一般'] = source.thresholdCandidateStartedAt;
+    }
+    return candidates;
+  }
+  function syncSocThresholdCandidates(candidates, rule, soc, evalAt, prior) {
+    var priorRank = levelRank(prior && (prior.maxLevel || prior.level));
+    LEVELS.forEach(function (name) {
+      var item = levelByName(rule, name);
+      var inBand = !!(item && item.enabled !== false && isFinite(soc) && soc <= Number(item.threshold));
+      if (inBand) {
+        if (!candidates[name] && priorRank < levelRank(name)) candidates[name] = evalAt;
+      } else {
+        candidates[name] = null;
+      }
+    });
+    return candidates;
+  }
+  function highestConfirmedSocLevel(rule, soc, candidates, evalAt, confirmNeed) {
+    return highestMatched(rule, function (item) {
+      if (!(isFinite(soc) && soc <= Number(item.threshold))) return false;
+      var started = candidates[item.level];
+      if (!started) return false;
+      var held = minutesBetween(started, evalAt);
+      if (held == null) held = 0;
+      return held >= confirmNeed;
+    });
+  }
   function evaluateSoc(currentSignal, rule, prior) {
     var m = Object.assign({}, prior || {}, currentSignal.metrics || {});
     var evalAt = m.evaluatedAt || currentSignal.evaluatedAt || evaluationTime(currentSignal);
@@ -1411,6 +1451,8 @@
     var fresh = telemetryFresh(m.lastTelemetryAt, evalAt, validMinutes, m.telemetryValid);
     m.telemetryValid = fresh;
     m.dataExpired = !fresh;
+    m.thresholdCandidates = migrateSocCandidates(m, prior);
+    delete m.thresholdCandidateStartedAt;
     var soc = Number(m.soc);
     var facts = [
       '当前 SOC：' + (isFinite(soc) ? soc + '%' : '—'),
@@ -1420,9 +1462,16 @@
       fresh ? 'SOC 数据有效' : '数据已过期'
     ];
     if (!fresh) return evaluation(null, m, facts, { hold: true, episode: !!(prior && prior.level) });
-    var matchedNow = highestMatched(rule, function (item) { return isFinite(soc) && soc <= Number(item.threshold); });
-    if (!matchedNow) {
-      m.thresholdCandidateStartedAt = null;
+    m.thresholdCandidates = syncSocThresholdCandidates(m.thresholdCandidates, rule, soc, evalAt, prior);
+    var observeStart = m.thresholdCandidates['一般'] || m.thresholdCandidates['严重'] || m.thresholdCandidates['紧急'];
+    if (observeStart) {
+      var observed = minutesBetween(observeStart, evalAt);
+      facts.push('低 SOC 已持续 ' + (observed == null ? 0 : observed) + ' 分钟');
+    }
+    var inAnyThreshold = !!enabledLevels(rule).filter(function (item) {
+      return isFinite(soc) && soc <= Number(item.threshold);
+    }).length;
+    if (!inAnyThreshold) {
       if (isFinite(soc) && soc >= recoverSoc) {
         var recoverStart = m.recoverCandidateStartedAt || evalAt;
         if (!(prior && prior.recoverCandidateStartedAt) && m.recoverCandidateStartedAt == null) recoverStart = evalAt;
@@ -1444,18 +1493,11 @@
       return evaluation(null, m, facts);
     }
     m.recoverCandidateStartedAt = null;
-    var candidate = (prior && prior.thresholdCandidateStartedAt) || m.thresholdCandidateStartedAt || evalAt;
-    m.thresholdCandidateStartedAt = candidate;
-    var confirmedFor = minutesBetween(candidate, evalAt);
-    if (confirmedFor == null) confirmedFor = 0;
-    facts.push('低 SOC 已持续 ' + confirmedFor + ' 分钟');
-    if (confirmedFor < confirmNeed && !(prior && (prior.maxLevel || prior.level))) {
+    var confirmed = highestConfirmedSocLevel(rule, soc, m.thresholdCandidates, evalAt, confirmNeed);
+    if (!confirmed && !(prior && (prior.maxLevel || prior.level))) {
       return evaluation(null, m, facts, { episode: false });
     }
-    var matched = keepHigherLevel(rule, matchedNow, prior);
-    if (prior && (prior.maxLevel || prior.level) && levelRank(matchedNow.level) > levelRank(prior.maxLevel || prior.level) && confirmedFor < confirmNeed) {
-      matched = levelByName(rule, prior.maxLevel || prior.level) || matched;
-    }
+    var matched = keepHigherLevel(rule, confirmed, prior);
     return evaluation(matched, m, facts, { maxLevel: matched ? matched.level : null });
   }
   function evaluateFatigue(currentSignal, rule, prior) {
@@ -1836,7 +1878,7 @@
       if (event.ruleCode === 'VEHICLE_OVERSPEED') appendSpeedSeedLogs(logs, event, result.timeline);
       else addSeedLogs(logs, event, currentSignal.history);
     });
-    return { version: 9, rules: rules, events: events, logs: logs, parkingCycles: {} };
+    return { version: 10, rules: rules, events: events, logs: logs, parkingCycles: {} };
   }
 
   function migrateVeryOldRules(rules) {
@@ -2053,6 +2095,12 @@
         event.metrics.currentStayDuration = event.currentStayDuration;
       }
     }
+    if (event.ruleCode === 'VEHICLE_LOW_SOC') {
+      event.metrics.thresholdCandidates = migrateSocCandidates(event.metrics, {
+        maxLevel: event.maxLevel || event.currentLevel || event.level,
+        level: event.currentLevel || event.level
+      });
+    }
     if (event.ruleCode === 'VEHICLE_OVERSPEED') {
       event.type = '车速预警';
       event.maxAlertLevel = event.maxAlertLevel || event.level;
@@ -2167,7 +2215,12 @@
       events = replacedSoc.events;
       logs = replacedSoc.logs;
     }
-    return { version: 9, rules: rules, events: events, logs: logs, parkingCycles: saved.parkingCycles && typeof saved.parkingCycles === 'object' ? saved.parkingCycles : {} };
+    if (!saved.version || saved.version < 10) {
+      var replacedSocCandidates = replaceTypedSeed(events, logs, seeded, ['VEHICLE_LOW_SOC']);
+      events = replacedSocCandidates.events;
+      logs = replacedSocCandidates.logs;
+    }
+    return { version: 10, rules: rules, events: events, logs: logs, parkingCycles: saved.parkingCycles && typeof saved.parkingCycles === 'object' ? saved.parkingCycles : {} };
   }
   function replaceTypedSeed(events, logs, seeded, codes) {
     var drop = {};
@@ -2965,6 +3018,11 @@
       var signalCopy = clone(currentSignal || {});
       signalCopy.ruleCode = 'VEHICLE_OVERSPEED';
       return evaluateSpeed(signalCopy, rule || resolveRule(state.rules, signalCopy));
+    },
+    evaluateSoc: function (currentSignal, rule, prior) {
+      var signalCopy = clone(currentSignal || {});
+      signalCopy.ruleCode = 'VEHICLE_LOW_SOC';
+      return evaluateSoc(signalCopy, rule || resolveRule(state.rules, signalCopy), prior || null);
     },
     operator: OPERATOR,
     levelRank: levelRank

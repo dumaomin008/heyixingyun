@@ -167,6 +167,8 @@
 
   function typeByPage(page) { return TYPES.filter(function (item) { return item.page === page; })[0] || null; }
   function typeByCode(code) {
+    // Legacy migration compatibility only.
+    // Historical PARKING_AREA data is normalized to AREA_STAY_TIMEOUT.
     if (code === 'PARKING_AREA') code = 'AREA_STAY_TIMEOUT';
     return TYPES.filter(function (item) { return item.code === code; })[0] || TYPES[0];
   }
@@ -643,7 +645,7 @@
     return '<section class="form-section"><div class="form-section-title"><span class="section-icon"></span>' + title + '</div>' + inner + '</section>';
   }
   function modalShell(title, name, body) {
-    return '<div class="modal ac-parking-modal" role="dialog" aria-modal="true"><div class="modal-header"><div><div class="modal-title">' + esc(title) + '</div>' + (name ? '<p class="ac-modal-sub">' + esc(name) + '</p>' : '') + '</div><button class="modal-close" type="button" onclick="acCloseRuleModal()" aria-label="关闭">×</button></div><div class="modal-body">' + body + '</div><div class="modal-footer"><button class="btn btn-default" type="button" onclick="acCloseRuleModal()">取消</button><button class="btn btn-primary" type="button" onclick="acSaveRule()">保存</button></div></div>';
+    return '<div class="modal ac-rule-modal" role="dialog" aria-modal="true"><div class="modal-header"><div><div class="modal-title">' + esc(title) + '</div>' + (name ? '<p class="ac-modal-sub">' + esc(name) + '</p>' : '') + '</div><button class="modal-close" type="button" onclick="acCloseRuleModal()" aria-label="关闭">×</button></div><div class="modal-body">' + body + '</div><div class="modal-footer"><button class="btn btn-default" type="button" onclick="acCloseRuleModal()">取消</button><button class="btn btn-primary" type="button" onclick="acSaveRule()">保存</button></div></div>';
   }
   function baseFields(item) {
     return '<div class="form-grid col-2">'
@@ -1060,7 +1062,9 @@
   }
   function levelHeldText(event) {
     var metrics = metricsOf(event);
-    var start = metrics.thresholdCandidateStartedAt || event.currentLevelTriggerTime || event.triggeredAt;
+    var level = displayLevel(event);
+    var candidates = metrics.thresholdCandidates || {};
+    var start = (candidates && candidates[level]) || event.currentLevelTriggerTime || event.triggeredAt;
     var end = event.recoveredAt || metrics.evaluatedAt || metrics.lastTelemetryAt;
     return preciseSpan(start, end) || '—';
   }
@@ -1680,7 +1684,7 @@
     state.ruleModal = { mode: mode, rule: JSON.parse(JSON.stringify(rule)), baseline: '' };
     var host = document.createElement('div');
     host.id = 'acRuleModalHost';
-    host.className = 'modal-overlay show ac-parking-modal-host';
+    host.className = 'modal-overlay show ac-rule-modal-host';
     host.innerHTML = modalShell((mode === 'create' ? '新增' : '编辑') + type.name + '规则', rule.name, modalBody(rule));
     host.addEventListener('click', function (event) { if (event.target === host) window.acCloseRuleModal(); });
     document.body.appendChild(host);
@@ -2039,24 +2043,6 @@
       row.hidden = !!(q && String(row.getAttribute('data-fence') || '').toLowerCase().indexOf(q) < 0);
     });
   };
-  window.acAddParkingRule = window.acAddRule;
-  window.acAddAreaStayRule = window.acAddRule;
-  window.acAddSpeedRule = window.acAddRule;
-  window.acEditParkingRule = window.acEditRule;
-  window.acEditAreaStayRule = window.acEditRule;
-  window.acEditSpeedRule = window.acEditRule;
-  window.acCloseParkingModal = window.acCloseRuleModal;
-  window.acCloseAreaStayModal = window.acCloseRuleModal;
-  window.acCloseSpeedModal = window.acCloseRuleModal;
-  window.acSaveParkingRule = window.acSaveRule;
-  window.acSaveSpeedRule = window.acSaveRule;
-  window.acRemoveParkingRule = window.acRemoveRule;
-  window.acRemoveAreaStayRule = window.acRemoveRule;
-  window.acRemoveSpeedRule = window.acRemoveRule;
-  window.acAreaRuleApply = window.acRuleApply;
-  window.acSpeedRuleApply = window.acRuleApply;
-  window.acAreaRuleReset = window.acRuleReset;
-  window.acSpeedRuleReset = window.acRuleReset;
   window.addEventListener('hashchange', function () { closeRuleModal(true); closeDrawer(); });
 
   if (!window.app) return;

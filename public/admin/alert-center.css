@@ -35,7 +35,7 @@
 .ac-speed-duration { position: relative; min-width: 148px; }
 .ac-speed-duration .wr-duration-unit { position: absolute; top: 4px; right: 4px; z-index: 1; width: 64px; height: 24px; padding: 0 4px; border: 1px solid var(--c-border); border-radius: 4px; background: #fff; color: var(--c-text-2); font-size: 12px; }
 .ac-page .wr-level-condition .ac-speed-duration .form-control-text,
-.ac-parking-modal .ac-speed-duration .form-control-text { padding-right: 76px; }
+.ac-rule-modal .ac-speed-duration .form-control-text { padding-right: 76px; }
 .ac-speed-recover { display: inline-flex; width: 180px; }
 .ac-speed-projects { margin-top: 8px; }
 .ac-timeline li.is-speed_start > i { background: #2563eb; box-shadow: 0 0 0 2px #bfdbfe; }
@@ -121,19 +121,19 @@
 .ac-handle-records time { display: block; color: var(--c-text-3); font-size: 11px; }
 .ac-handle-records b { display: block; margin-top: 4px; color: var(--c-text-1); font-size: 13px; }
 .ac-handle-records p { margin: 4px 0 0; color: var(--c-text-2); font-size: 12px; line-height: 1.5; }
-.ac-parking-modal-host { z-index: 1400; }
-.ac-parking-modal { width: min(1040px, calc(100vw - 40px)); max-height: calc(100vh - 40px); display: flex; flex-direction: column; overflow: hidden; }
-.ac-parking-modal .modal-header { flex: 0 0 auto; position: sticky; top: 0; }
-.ac-parking-modal .modal-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 16px 20px; }
-.ac-parking-modal .modal-footer { flex: 0 0 auto; position: sticky; bottom: 0; background: #fff; }
-.ac-parking-modal .form-section { margin: 0 0 14px; padding: 16px 18px; border: 1px solid var(--c-border); border-radius: 12px; background: #fff; }
-.ac-parking-modal .form-section:last-child { margin-bottom: 0; }
+.ac-rule-modal-host { z-index: 1400; }
+.ac-rule-modal { width: min(1040px, calc(100vw - 40px)); max-height: calc(100vh - 40px); display: flex; flex-direction: column; overflow: hidden; }
+.ac-rule-modal .modal-header { flex: 0 0 auto; position: sticky; top: 0; }
+.ac-rule-modal .modal-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 16px 20px; }
+.ac-rule-modal .modal-footer { flex: 0 0 auto; position: sticky; bottom: 0; background: #fff; }
+.ac-rule-modal .form-section { margin: 0 0 14px; padding: 16px 18px; border: 1px solid var(--c-border); border-radius: 12px; background: #fff; }
+.ac-rule-modal .form-section:last-child { margin-bottom: 0; }
 .ac-modal-sub { margin: 4px 0 0; color: var(--c-text-3); font-size: 12px; }
 .ac-scope-count { margin: 6px 0 8px; color: var(--c-text-3); font-size: 12px; }
 .ac-level-table { min-width: 0; }
 .ac-level-table th, .ac-level-table td { white-space: nowrap; }
 .ac-level-input { max-width: 180px; }
-.ac-parking-modal [hidden] { display: none !important; }
+.ac-rule-modal [hidden] { display: none !important; }
 .ac-scope-choices { display: flex; align-items: center; gap: 20px; min-height: 32px; }
 .ac-scope-choice { display: inline-flex; align-items: center; gap: 8px; color: var(--c-text-1); font-size: 13px; cursor: pointer; }
 .ac-scope-choice input { width: 16px; height: 16px; margin: 0; accent-color: var(--c-primary); }
@@ -142,7 +142,7 @@
 .ac-scope-bar .ac-scope-count { margin: 0; }
 .ac-scope-actions { display: flex; gap: 8px; flex: 0 0 auto; }
 .ac-org-tree,
-.ac-parking-modal .ac-vehicle-list { max-height: 240px; margin-top: 8px; overflow: auto; padding: 8px 10px; border: 1px solid var(--c-border); border-radius: 8px; background: #f8fafc; }
+.ac-rule-modal .ac-vehicle-list { max-height: 240px; margin-top: 8px; overflow: auto; padding: 8px 10px; border: 1px solid var(--c-border); border-radius: 8px; background: #f8fafc; }
 .ac-org-group + .ac-org-group { margin-top: 6px; }
 .ac-org-company { font-weight: 650; }
 .ac-org-depts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); padding-left: 24px; }

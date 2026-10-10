@@ -111,12 +111,12 @@ async function evaluate(sessionId, expression) {
     var before = window.AlertCenterStore.getRules().length;
     window.acTab('rules');
     window.acAddRule();
-    var text = (document.querySelector('.ac-parking-modal') || {}).textContent || '';
+    var text = (document.querySelector('.ac-rule-modal') || {}).textContent || '';
     var sections = ['基础信息', '适用范围', '业务识别条件', '告警等级', '恢复条件', '规则说明'].map(function (name) { return text.indexOf(name) >= 0; });
     window.acCloseRuleModal();
     var after = window.AlertCenterStore.getRules().length;
     window.acTab('list');
-    return { before: before, after: after, sections: sections, closed: !document.querySelector('.ac-parking-modal') };
+    return { before: before, after: after, sections: sections, closed: !document.querySelector('.ac-rule-modal') };
   })()`);
 
   const handleFlow = await evaluate(sessionId, `(function () {
@@ -133,7 +133,7 @@ async function evaluate(sessionId, expression) {
     window.acSubmitHandle(false);
     var updated = window.AlertCenterStore.getEvent(event.id);
     return {
-      detailHas: detailText.indexOf('电量状态') >= 0 && detailText.indexOf('时间轴') >= 0,
+      detailHas: detailText.indexOf('业务详情') >= 0 && detailText.indexOf('触发依据') >= 0 && detailText.indexOf('事件时间线') >= 0,
       options: options,
       eventStatus: updated.eventStatus,
       handleStatus: updated.handleStatus
@@ -159,10 +159,10 @@ async function evaluate(sessionId, expression) {
       window.app.navigate(page);
       window.acTab('rules');
       window.acAddRule();
-      var text = (document.querySelector('.ac-parking-modal') || {}).textContent || '';
+      var text = (document.querySelector('.ac-rule-modal') || {}).textContent || '';
       var ok = text.indexOf('基础信息') >= 0 && text.indexOf('取消') >= 0 && text.indexOf('保存') >= 0;
       window.acCloseRuleModal();
-      return { ok: ok, closed: !document.querySelector('.ac-parking-modal'), sample: text.slice(0, 80) };
+      return { ok: ok, closed: !document.querySelector('.ac-rule-modal'), sample: text.slice(0, 80) };
     }
     return {
       parking: open('alert-parking'),
@@ -172,7 +172,31 @@ async function evaluate(sessionId, expression) {
     };
   })()`);
 
-  console.log(JSON.stringify({ booted, views, ruleFlow, handleFlow, noBill, modals }, null, 2));
+  const details = await evaluate(sessionId, `(function () {
+    var samples = [
+      ['alert-parking', 'live-stop'],
+      ['alert-parking-area', 'live-area-serious'],
+      ['alert-overspeed', 'speed-live-critical'],
+      ['alert-weighbill', 'live-bill-urgent'],
+      ['alert-soc', 'live-soc'],
+      ['alert-soc', 'live-soc-expired-hold'],
+      ['alert-fatigue', 'live-fatigue']
+    ];
+    return samples.map(function (pair) {
+      window.app.navigate(pair[0]);
+      var event = window.AlertCenterStore.getEvents().filter(function (item) { return item.sourceId === pair[1]; })[0];
+      if (!event) return { source: pair[1], missing: true };
+      window.acView(event.id);
+      var drawer = document.querySelector('.ac-drawer');
+      var titles = Array.prototype.map.call(drawer.querySelectorAll('.detail-section-title'), function (node) { return node.textContent.trim(); });
+      var labels = Array.prototype.map.call(drawer.querySelectorAll('.ac-kv dt'), function (node) { return node.textContent.trim(); });
+      var text = drawer.textContent.replace(/\\s+/g, ' ');
+      window.acCloseDrawer();
+      return { source: pair[1], titles: titles, labels: labels, text: text.slice(0, 500) };
+    });
+  })()`);
+
+  console.log(JSON.stringify({ booted, views, ruleFlow, handleFlow, noBill, modals, details }, null, 2));
   chrome.kill('SIGKILL');
   process.exit(0);
 })().catch((error) => {
