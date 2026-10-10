@@ -2,6 +2,7 @@
 .ac-page { min-width: 1120px; }
 .ac-section-tabs { margin-bottom: 16px; }
 .ac-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.ac-metrics-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .ac-metric { position: relative; display: grid; min-height: 104px; padding: 15px 18px; overflow: hidden; border: 1px solid var(--c-border); border-radius: 12px; background: #fff; box-shadow: var(--sh-sm); text-align: left; cursor: pointer; transition: border-color .2s, transform .2s, box-shadow .2s; }
 .ac-metric::before { position: absolute; top: 0; bottom: 0; left: 0; width: 3px; background: var(--metric-color); content: ""; }
 .ac-metric:hover, .ac-metric.is-active { border-color: color-mix(in srgb, var(--metric-color) 42%, #e2e8f0); transform: translateY(-1px); box-shadow: 0 8px 22px -10px color-mix(in srgb, var(--metric-color) 32%, transparent); }
@@ -19,10 +20,39 @@
 .ac-status-switch button.is-active { background: linear-gradient(135deg, #4f46e5, #7c3aed); color: #fff; box-shadow: 0 4px 12px rgba(79, 70, 229, .22); }
 .ac-status-switch button b { display: grid; min-width: 20px; height: 20px; place-items: center; padding: 0 6px; border-radius: 999px; background: #eef2ff; color: #4f46e5; font-size: 10.5px; }
 .ac-status-switch button.is-active b { background: rgba(255, 255, 255, .2); color: #fff; }
-.ac-filter .filter-row { grid-template-columns: repeat(4, minmax(170px, 1fr)); }
+.ac-filter { overflow: visible; }
+.ac-filter .filter-row { grid-template-columns: repeat(4, minmax(170px, 1fr)); overflow: visible; }
+.ac-filter .filter-item { overflow: visible; }
+.ac-org-filter { position: relative; z-index: 1; }
+.ac-org-filter.is-open { z-index: 24; }
+.ac-org-filter .cb-entity-trigger { height: 32px; }
+.ac-date-range { display: flex; align-items: center; gap: 8px; }
+.ac-date-range span { color: var(--c-text-3); flex: none; }
+.ac-date-range .filter-control { min-width: 0; flex: 1; }
 .ac-table-wrap { max-height: calc(100vh - 460px); min-height: 260px; }
 .ac-table { min-width: 1480px; }
-.ac-table-vehicle_low_soc { min-width: 1280px; }
+.ac-table-transport_parking { min-width: 1980px; }
+.ac-table-area_stay_timeout { min-width: 1980px; }
+.ac-table-vehicle_overspeed { min-width: 2280px; }
+.ac-false-tag { display: inline-flex; margin-left: 6px; padding: 0 6px; height: 18px; align-items: center; border-radius: 999px; background: #f1f5f9; color: #64748b; font-size: 11px; font-weight: 600; vertical-align: middle; }
+.ac-speed-hero { display: grid; gap: 12px; margin-bottom: 16px; padding: 16px 18px; border: 1px solid var(--c-border); border-radius: 12px; background: linear-gradient(180deg, #f8fafc, #fff); }
+.ac-speed-hero strong { display: block; color: var(--c-text-1); font-size: 18px; }
+.ac-speed-hero span { display: block; margin-top: 4px; color: var(--c-text-2); font-size: 13px; }
+.ac-speed-hero dl { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin: 0; }
+.ac-speed-hero dt { color: var(--c-text-3); font-size: 11px; }
+.ac-speed-hero dd { margin: 2px 0 0; color: var(--c-text-1); font-size: 13px; font-weight: 650; }
+.ac-speed-duration { position: relative; min-width: 148px; }
+.ac-speed-duration .wr-duration-unit { position: absolute; top: 4px; right: 4px; z-index: 1; width: 64px; height: 24px; padding: 0 4px; border: 1px solid var(--c-border); border-radius: 4px; background: #fff; color: var(--c-text-2); font-size: 12px; }
+.ac-page .wr-level-condition .ac-speed-duration .form-control-text,
+.ac-parking-modal .ac-speed-duration .form-control-text { padding-right: 76px; }
+.ac-speed-recover { display: inline-flex; width: 180px; }
+.ac-speed-projects { margin-top: 8px; }
+.ac-rule-panel [hidden] { display: none !important; }
+.ac-timeline li.is-speed_start > i { background: #2563eb; box-shadow: 0 0 0 2px #bfdbfe; }
+.ac-timeline li.is-handled > i { background: #7c3aed; box-shadow: 0 0 0 2px #ddd6fe; }
+.ac-table-unload_weighbill_missing { min-width: 1760px; }
+.ac-table-vehicle_low_soc { min-width: 1480px; }
+.ac-table-driver_fatigue { min-width: 1760px; }
 .ac-table th, .ac-table td { white-space: nowrap; }
 .ac-table .ac-content-cell { max-width: 230px; overflow: hidden; text-overflow: ellipsis; }
 .ac-type-cell strong, .ac-type-cell small { display: block; }
@@ -49,6 +79,7 @@
 .ac-drawer .detail-section:last-child { margin-bottom: 0; }
 .ac-drawer .detail-section-title { margin-bottom: 14px; padding-left: 9px; border-left: 3px solid var(--c-primary); color: var(--c-text-1); font-size: 14px; font-weight: 700; }
 .ac-detail-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px; }
+.ac-detail-summary.is-parking { grid-template-columns: repeat(3, 1fr); }
 .ac-detail-summary > span { display: grid; min-height: 68px; place-items: center; align-content: center; gap: 7px; border: 1px solid var(--c-border); border-radius: 10px; background: #fff; }
 .ac-detail-summary > span > b { color: var(--c-text-1); font-size: 14px; }
 .ac-detail-summary small { color: var(--c-text-3); font-size: 10.5px; }
@@ -97,11 +128,19 @@
 .ac-check-list { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 8px; }
 .ac-vehicle-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .ac-vehicle-option small { color: var(--c-text-3); font-size: 11px; }
-.ac-judge { background: #fff7ed; border-color: #fdba74; }
-.ac-judge-list { margin: 0; padding-left: 18px; color: var(--c-text-1); font-size: 13px; line-height: 1.7; }
 .ac-mock-hint { margin: 0; color: var(--c-text-3); font-size: 12px; line-height: 1.55; }
-.ac-timeline li.is-still_started > i { background: #64748b; box-shadow: 0 0 0 2px #cbd5e1; }
-.ac-table-transport_parking { min-width: 1680px; }
+.ac-timeline li.is-still_started > i,
+.ac-timeline li.is-enter_fence > i { background: #64748b; box-shadow: 0 0 0 2px #cbd5e1; }
+.ac-timeline li.is-alert_created > i { background: #2563eb; box-shadow: 0 0 0 2px #bfdbfe; }
+.ac-timeline li.is-level_upgrade > i { background: #dc2626; box-shadow: 0 0 0 2px #fecaca; }
+.ac-timeline li.is-manual_handle > i { background: #7c3aed; box-shadow: 0 0 0 2px #ddd6fe; }
+.ac-timeline li.is-leave_fence > i,
+.ac-timeline li.is-auto_recover > i { background: #10b981; box-shadow: 0 0 0 2px #a7f3d0; }
+.ac-handle-records { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.ac-handle-records li { padding: 10px 12px; border-radius: 8px; background: #f8fafc; }
+.ac-handle-records time { display: block; color: var(--c-text-3); font-size: 11px; }
+.ac-handle-records b { display: block; margin-top: 4px; color: var(--c-text-1); font-size: 13px; }
+.ac-handle-records p { margin: 4px 0 0; color: var(--c-text-2); font-size: 12px; line-height: 1.5; }
 .ac-rule-table { min-width: 1280px; }
 .ac-parking-modal-host { z-index: 1400; }
 .ac-parking-modal { width: min(1040px, calc(100vw - 40px)); max-height: calc(100vh - 40px); display: flex; flex-direction: column; overflow: hidden; }
@@ -115,10 +154,26 @@
 .ac-level-table { min-width: 0; }
 .ac-level-table th, .ac-level-table td { white-space: nowrap; }
 .ac-level-input { max-width: 180px; }
-.ac-parking-modal .ac-vehicle-list { max-height: 180px; overflow: auto; padding-right: 4px; }
+.ac-parking-modal [hidden] { display: none !important; }
+.ac-scope-choices { display: flex; align-items: center; gap: 20px; min-height: 32px; }
+.ac-scope-choice { display: inline-flex; align-items: center; gap: 8px; color: var(--c-text-1); font-size: 13px; cursor: pointer; }
+.ac-scope-choice input { width: 16px; height: 16px; margin: 0; accent-color: var(--c-primary); }
+.ac-scope-panel { margin-top: 12px; }
+.ac-scope-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.ac-scope-bar .ac-scope-count { margin: 0; }
+.ac-scope-actions { display: flex; gap: 8px; flex: 0 0 auto; }
+.ac-org-tree,
+.ac-parking-modal .ac-vehicle-list { max-height: 240px; margin-top: 8px; overflow: auto; padding: 8px 10px; border: 1px solid var(--c-border); border-radius: 8px; background: #f8fafc; }
+.ac-org-group + .ac-org-group { margin-top: 6px; }
+.ac-org-company { font-weight: 650; }
+.ac-org-depts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); padding-left: 24px; }
+.ac-org-dept small,
+.ac-vehicle-option small { margin-left: 6px; }
+.ac-org-empty { padding: 16px 8px; color: var(--c-text-3); font-size: 12px; text-align: center; }
 
 @media (max-width: 1280px) {
   .ac-filter .filter-row { grid-template-columns: repeat(3, minmax(170px, 1fr)); }
+  .ac-metrics-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ac-table-wrap { max-height: calc(100vh - 500px); }
   .ac-rule-cards { grid-template-columns: 1fr; }
 }
