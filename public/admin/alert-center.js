@@ -1,8 +1,10 @@
-/* 告警中心：六类菜单共用一套列表、规则弹框、详情抽屉和处理抽屉。 */
+/* 告警中心：六类菜单共用列表、规则弹框和详情抽屉；停车与未上传磅单事件只读。 */
 (function () {
   'use strict';
 
   var LEVEL_NAMES = ['一般', '严重', '紧急'];
+  var LEVEL_FILTER_ORDER = ['紧急', '严重', '一般'];
+  var LEVEL_LABELS = { '紧急': '高风险', '严重': '中风险', '一般': '低风险' };
   var HANDLE_STATUSES = ['待处理', '处理中', '已处理'];
   var HOST = '#acRuleModalHost';
 
@@ -27,7 +29,7 @@
     return [
       { key: 'current', label: labels[0], copy: '仍在发生', tone: 'red', status: '发生中', count: extras && extras.plates ? 'plates' : '', match: activeMatch },
       { key: 'today', label: labels[1], copy: (extras && extras.todayCopy) || (labels[1] === '今日车速预警' ? '今日新产生的超速事件' : '今日新产生'), tone: 'blue', match: extras && extras.today ? extras.today : todayMatch },
-      { key: 'urgent', label: labels[2], copy: extras && extras.urgentCopy ? extras.urgentCopy : '今日升至紧急', tone: 'orange', status: extras && extras.urgentStatus ? extras.urgentStatus : '', match: extras && extras.urgent ? extras.urgent : urgentTodayMatch },
+      { key: 'urgent', label: labels[2], copy: extras && extras.urgentCopy ? extras.urgentCopy : '今日升至高风险', tone: 'orange', status: extras && extras.urgentStatus ? extras.urgentStatus : '', match: extras && extras.urgent ? extras.urgent : urgentTodayMatch },
       { key: 'pending', label: '待处理', copy: '尚未处置', tone: 'amber', handle: '待处理', match: pendingMatch }
     ];
   }
@@ -38,17 +40,13 @@
       summary: '运输任务执行中识别持续静止，排除装卸与充电后按分级时长触发。',
       orgLabel: '所属部门', activeLabel: '发生中', orgKind: 'dept',
       protectedId: 'RULE_TRANSPORT_PARKING', ruleTitle: '停车超时规则',
-      scopeOptions: ['组织部门', '自定义车辆'],
+      scopeOptions: ['自定义车辆', '组织部门'],
       columns: listColumns('所属部门', [
-        { key: 'parkingDuration', label: '停车时长' }, { key: 'location', label: '当前/停车位置' },
-        { key: 'parkingStartedAt', label: '停车开始时间' }, { key: 'triggeredAt', label: '告警时间' },
+        { key: 'location', label: '当前/停车位置' }, { key: 'parkingStartedAt', label: '停车开始时间' },
+        { key: 'parkingDuration', label: '停车时长' }, { key: 'triggeredAt', label: '告警时间' },
         { key: 'parkingEndedAt', label: '停车结束时间' }
       ]),
-      metrics: decisionMetrics(['当前停车告警', '今日新增', '今日紧急']),
-      handleOptions: ['继续观察', '联系司机', '联系场站', '调整任务', '车辆故障处理', '误报', '无需处理', '其他'],
-      falseAlarmReasons: ['围栏边界异常', 'GPS 漂移', '车辆定位异常', '规则配置错误', '其他'],
-      parkingReasons: ['装货等待', '卸货等待', '排队/过磅', '充电', '司机休息', '道路拥堵', '车辆故障', '交通事故', '临时停车', '数据异常', '其他'],
-      handleHint: '提交处理和标记已处理只更新处理状态。车辆恢复行驶或任务结束后，停车监测才会结束。',
+      metrics: decisionMetrics(['当前停车告警', '今日新增', '今日高风险']),
       note: '同一次连续停车只产生一条告警，达到更高等级时在原事件上升级。修改规则只影响之后新触发的预警。'
     },
     {
@@ -63,7 +61,7 @@
         { key: 'fenceName', label: '围栏名称' }, { key: 'fenceType', label: '围栏类型' },
         { key: 'enteredAt', label: '进入围栏时间' }
       ]),
-      metrics: decisionMetrics(['当前超时停留', '今日新增', '今日紧急']),
+      metrics: decisionMetrics(['当前超时停留', '今日新增', '今日高风险']),
       handleOptions: ['继续观察', '联系司机', '联系场站', '调整任务', '车辆故障处理', '误报', '无需处理', '其他'],
       falseAlarmReasons: ['围栏边界异常', 'GPS 漂移', '车辆定位异常', '规则配置错误', '其他'],
       handleHint: '提交处理和标记已处理只更新处理状态。车辆离开产生告警的围栏后，事件才会恢复。',
@@ -79,7 +77,7 @@
         { key: 'speed', label: '当前车速' }, { key: 'overspeedDuration', label: '连续超速时长' },
         { key: 'location', label: '当前地点' }, { key: 'triggeredAt', label: '告警时间' }
       ]),
-      metrics: decisionMetrics(['当前超速车辆', '今日车速预警', '今日紧急'], { plates: true }),
+      metrics: decisionMetrics(['当前超速车辆', '今日车速预警', '今日高风险'], { plates: true }),
       handleOptions: ['电话提醒司机', '通知车队长', '安全教育', '确认误报', '无需处理', '其他'],
       falseAlarmReasons: ['GPS漂移', '设备数据异常', '数据延迟', '其他'],
       handleHint: '处置只记录人工结果。车辆仍在超速时，事件保持超速中，直到车速回到恢复条件。',
@@ -88,13 +86,13 @@
     {
       page: 'alert-weighbill', code: 'UNLOAD_WEIGHBILL_MISSING', name: '卸货后未上传磅单',
       summary: '车辆完成卸货并有效离开卸货地后，超过补录窗口仍未提交卸货磅单时触发。',
-      orgLabel: '所属项目', activeLabel: '待上传中', orgKind: 'project',
+      orgLabel: '所属部门', activeLabel: '发生中', orgKind: 'dept',
       extraLabel: '卸货地', extraPlaceholder: '卸货区域 / 地点',
       protectedId: 'RULE_UNLOAD_WEIGHBILL_MISSING', ruleTitle: '磅单预警规则',
-      scopeOptions: ['全部项目', '指定项目'],
-      columns: listColumns('所属项目', [
+      scopeOptions: ['自定义车辆', '组织部门'],
+      columns: listColumns('所属部门', [
         { key: 'waitingMinutes', label: '已超时' }, { key: 'unloadLocation', label: '卸货地' },
-        { key: 'unloadDepartedAt', label: '离开卸货地时间' }, { key: 'departSource', label: '离场时间来源' },
+        { key: 'unloadDepartedAt', label: '离开卸货地时间' },
         { key: 'weighbillStatus', label: '磅单状态' }, { key: 'triggeredAt', label: '告警时间' }
       ]),
       metrics: decisionMetrics(['当前待上传', '今日新增', '超60分钟'], {
@@ -102,10 +100,6 @@
         urgentStatus: '发生中',
         urgent: function (event) { return activeMatch(event) && Number((event.metrics || {}).waitingMinutes) >= 60; }
       }),
-      handleOptions: ['提醒司机上传', '联系现场确认', '后台协助补传', '确认无需磅单', '确认误报', '其他'],
-      falseAlarmReasons: ['数据异常', '重复任务', '磅单已线下收取', '其他'],
-      noBillReasons: ['客户确认无需过磅', '现场无法过磅', '其他'],
-      handleHint: '提醒、联系和协助补传只更新处理状态。确认无需磅单会结束本条告警并保留原因。',
       note: '只在任务有效、卸货节点成立且已确认离场后计时。经过围栏、上传中和无需磅单不会触发。'
     },
     {
@@ -143,9 +137,9 @@
         { key: 'currentSpeed', label: '当前车速' }, { key: 'recentParking', label: '最近停车时长' },
         { key: 'triggeredAt', label: '告警时间' }
       ]),
-      metrics: decisionMetrics(['当前疲劳驾驶', '≥4小时', '紧急风险'], {
+      metrics: decisionMetrics(['当前疲劳驾驶', '≥4小时', '高风险'], {
         todayCopy: '发生中且连续驾驶达到 4 小时',
-        urgentCopy: '发生中的紧急风险',
+        urgentCopy: '发生中的高风险告警',
         urgentStatus: '发生中',
         today: function (event) { return activeMatch(event) && Number((event.metrics || {}).continuousDrivingMinutes) >= 240; },
         urgent: function (event) { return activeMatch(event) && (event.maxLevel || event.level) === '紧急'; }
@@ -159,6 +153,11 @@
 
   TYPES[1].metrics[0].match = activeMatch;
   TYPES[4].metrics[0].count = 'plates';
+  [TYPES[0], TYPES[3]].forEach(function (type) {
+    type.readOnly = true;
+    type.columns = type.columns.filter(function (column) { return column.key !== 'handleStatus'; });
+    type.metrics[3] = { key: 'recovered', label: '已恢复', copy: '监测条件已解除', tone: 'blue', status: '已恢复', match: function (event) { return event.eventStatus === '已恢复'; } };
+  });
 
   var pageState = {};
   var drawerEventId = '';
@@ -175,17 +174,22 @@
   function isAreaCode(code) { return code === 'AREA_STAY_TIMEOUT' || code === 'PARKING_AREA'; }
   function blankFilters() {
     return {
-      project: '', level: '', handleStatus: '', keyword: '', extra: '',
+      project: '', plate: '', driverName: '', taskId: '', level: '', handleStatus: '', extra: '',
+      parkingDurationOp: '>=', parkingDurationMinutes: '',
       start: '', end: '', eventStatus: '发生中', fenceType: '', metric: ''
     };
   }
-  function blankRuleFilters() { return { name: '', scopeType: '', status: '' }; }
+  function blankRuleFilters() { return { name: '', status: '' }; }
   function pageOf(page) {
     if (!pageState[page]) {
       pageState[page] = { tab: 'list', listFilters: blankFilters(), activeMetric: '', ruleFilters: blankRuleFilters(), ruleModal: null };
     }
     var state = pageState[page];
     if (!state.listFilters) state.listFilters = blankFilters();
+    if (!state.listFilters.parkingDurationOp) state.listFilters.parkingDurationOp = '>=';
+    if (state.listFilters.parkingDurationMinutes == null) {
+      state.listFilters.parkingDurationMinutes = state.listFilters.minParkingMinutes || '';
+    }
     if (!state.ruleFilters) state.ruleFilters = blankRuleFilters();
     if (state.ruleModal === undefined) state.ruleModal = null;
     return state;
@@ -200,7 +204,7 @@
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
   function toast(message) {
-    if (typeof showAppToast === 'function') showAppToast(message);
+    if (typeof showAppToast === 'function') showAppToast(levelText(message));
     else window.alert(message);
   }
   function store() { return window.AlertCenterStore; }
@@ -216,10 +220,16 @@
     return '<div class="filter-item"><label class="filter-label">' + label + '</label>' + control + '</div>';
   }
   function badge(value, tone) { return '<span class="badge badge-' + tone + '">' + esc(value) + '</span>'; }
+  function levelLabel(level) { return LEVEL_LABELS[level] || level || '—'; }
+  function levelText(value) {
+    return String(value == null ? '' : value)
+      .replace(/紧急风险/g, '高风险').replace(/紧急/g, '高风险')
+      .replace(/严重/g, '中风险').replace(/一般/g, '低风险');
+  }
   function levelBadge(level) {
-    if (level === '紧急') return badge(level, 'error');
-    if (level === '严重') return badge(level, 'warning');
-    return badge(level || '—', 'gray');
+    if (level === '紧急') return badge(levelLabel(level), 'error');
+    if (level === '严重') return badge(levelLabel(level), 'warning');
+    return badge(levelLabel(level), 'gray');
   }
   function eventBadge(type, event) {
     var raw = event.eventStatus || (event.recoveredAt ? '已恢复' : '发生中');
@@ -287,13 +297,37 @@
     var metrics = event.metrics || {};
     return metrics.parkingStartedAt || metrics.staticCandidateStartAt || metrics.staticStartTime || '';
   }
-  function parkingDurationText(event) {
+  function parkingDurationMinutes(event) {
     var start = parkingStartAt(event);
     if (start && event.recoveredAt) {
       var closed = stampMinutes(start, event.recoveredAt);
-      if (closed != null && closed > 0) return metricText(closed);
+      if (closed != null && closed > 0) return closed;
     }
-    return metricText((event.metrics || {}).parkingMinutes);
+    var minutes = (event.metrics || {}).parkingMinutes;
+    return minutes == null || !isFinite(Number(minutes)) ? null : Number(minutes);
+  }
+  function parkingDurationText(event) {
+    var minutes = parkingDurationMinutes(event);
+    return minutes == null ? '—' : metricText(minutes);
+  }
+  var DURATION_OPS = ['>=', '>', '=', '<=', '<'];
+  function hourKey(value) {
+    var s = String(value || '').trim().replace(/T/, ' ').replace(/\//g, '-');
+    var match = s.match(/(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}))?/);
+    if (!match) return '';
+    return match[1] + ' ' + (match[2] || '00');
+  }
+  function datetimeLocalValue(value) {
+    var key = hourKey(value);
+    return key ? key.replace(' ', 'T') + ':00' : '';
+  }
+  function durationOpMatch(minutes, op, value) {
+    if (op === '>') return minutes > value;
+    if (op === '>=') return minutes >= value;
+    if (op === '=') return minutes === value;
+    if (op === '<=') return minutes <= value;
+    if (op === '<') return minutes < value;
+    return minutes >= value;
   }
   function areaStayDurationText(event) {
     if (event.eventStatus === '已恢复' || event.leaveTime || event.recoveredAt) {
@@ -360,11 +394,11 @@
       case 'level': return levelBadge(displayLevel(event));
       case 'eventStatus': return eventBadge(type, event);
       case 'handleStatus': return handleBadge(event.handleStatus) + (event.falsePositive ? '<span class="ac-false-tag">误报</span>' : '');
-      case 'projectName': return esc((type.code === 'TRANSPORT_PARKING' ? (event.departmentName || event.projectName) : event.projectName) || '—');
+      case 'projectName': return esc((type.orgKind === 'dept' ? (event.departmentName || event.projectName) : event.projectName) || '—');
       case 'plate': return esc(event.plate || '—');
       case 'driverName': return esc(event.driverName || '—');
       case 'location': return esc(event.location || '—');
-      case 'taskId': return taskLink(event.taskId);
+      case 'taskId': return type.readOnly ? esc(event.taskId || '—') : taskLink(event.taskId);
       case 'parkingDuration': return esc(parkingDurationText(event));
       case 'parkingStartedAt': return esc(parkingStartAt(event) || '—');
       case 'parkingEndedAt': return esc(event.recoveredAt || '—');
@@ -399,6 +433,7 @@
     if (!extra) return true;
     var q = extra.toLowerCase();
     var metrics = event.metrics || {};
+    if (type.code === 'TRANSPORT_PARKING') return String(event.location || '').toLowerCase().indexOf(q) >= 0;
     if (type.code === 'AREA_STAY_TIMEOUT') return String(event.fenceName || metrics.fenceName || event.location || '').toLowerCase().indexOf(q) >= 0;
     if (type.code === 'UNLOAD_WEIGHBILL_MISSING') return String(metrics.unloadLocation || event.location || '').toLowerCase().indexOf(q) >= 0;
     return true;
@@ -407,7 +442,11 @@
     return (type.metrics || []).filter(function (item) { return item.key === key; })[0] || null;
   }
   function filterEvents(list, filters, type) {
-    var q = String(filters.keyword || '').trim().toLowerCase();
+    var plate = String(filters.plate || '').trim().toLowerCase();
+    var driverName = String(filters.driverName || '').trim().toLowerCase();
+    var taskId = String(filters.taskId || '').trim().toLowerCase();
+    var parkingMinutes = filters.parkingDurationMinutes === '' || filters.parkingDurationMinutes == null ? null : Number(filters.parkingDurationMinutes);
+    var parkingOp = filters.parkingDurationOp || '>=';
     var metric = metricByKey(type, filters.metric);
     return list.filter(function (item) {
       if (filters.project) {
@@ -419,11 +458,28 @@
       }
       if (filters.level && displayLevel(item) !== filters.level && item.level !== filters.level) return false;
       if (filters.eventStatus && item.eventStatus !== filters.eventStatus) return false;
-      if (filters.handleStatus && item.handleStatus !== filters.handleStatus) return false;
+      if (!type.readOnly && filters.handleStatus && item.handleStatus !== filters.handleStatus) return false;
       if (filters.fenceType && (item.fenceType || (item.metrics || {}).fenceType) !== filters.fenceType) return false;
-      if (filters.start && String(item.triggeredAt || '').slice(0, 10) < filters.start) return false;
-      if (filters.end && String(item.triggeredAt || '').slice(0, 10) > filters.end) return false;
-      if (q && [item.plate, item.driverName, item.taskId, item.id].join(' ').toLowerCase().indexOf(q) < 0) return false;
+      if (type.code === 'TRANSPORT_PARKING' || type.code === 'UNLOAD_WEIGHBILL_MISSING') {
+        if (filters.start) {
+          var startedHour = hourKey(type.code === 'TRANSPORT_PARKING' ? parkingStartAt(item) : (item.triggeredAt || item.alertCreatedAt));
+          if (!startedHour || startedHour < hourKey(filters.start)) return false;
+        }
+        if (filters.end) {
+          var endedHour = hourKey(item.recoveredAt);
+          if (!endedHour || endedHour > hourKey(filters.end)) return false;
+        }
+        if (type.code === 'TRANSPORT_PARKING' && parkingMinutes != null && isFinite(parkingMinutes)) {
+          var duration = parkingDurationMinutes(item);
+          if (duration == null || !durationOpMatch(duration, parkingOp, parkingMinutes)) return false;
+        }
+      } else {
+        if (filters.start && String(item.triggeredAt || '').slice(0, 10) < filters.start) return false;
+        if (filters.end && String(item.triggeredAt || '').slice(0, 10) > filters.end) return false;
+      }
+      if (plate && String(item.plate || '').toLowerCase().indexOf(plate) < 0) return false;
+      if (driverName && String(item.driverName || '').toLowerCase().indexOf(driverName) < 0) return false;
+      if (taskId && String(item.taskId || '').toLowerCase().indexOf(taskId) < 0) return false;
       if (!extraMatch(item, type, String(filters.extra || '').trim())) return false;
       if (metric && !metric.match(item)) return false;
       return true;
@@ -433,8 +489,8 @@
       return String(b.triggeredAt || '').localeCompare(String(a.triggeredAt || ''));
     });
   }
-  function metricCount(list, metric) {
-    var matched = list.filter(function (item) { return !item.falsePositive && metric.match(item); });
+  function metricCount(list, metric, type) {
+    var matched = list.filter(function (item) { return (type.readOnly || !item.falsePositive) && metric.match(item); });
     if (metric.count === 'plates') {
       var plates = {};
       matched.forEach(function (item) { if (item.plate) plates[item.plate] = true; });
@@ -444,18 +500,7 @@
   }
   function renderMetrics(type, list, active) {
     return '<div class="ac-metrics ac-metrics-4">' + type.metrics.map(function (metric) {
-      return '<button type="button" class="ac-metric ac-metric-' + metric.tone + (active === metric.key ? ' is-active' : '') + '" onclick="acMetric(\'' + metric.key + '\')"><span>' + esc(metric.label) + '</span><b>' + metricCount(list, metric) + '</b><small>' + esc(metric.copy) + '</small></button>';
-    }).join('') + '</div>';
-  }
-  function renderStatusSwitch(type, list, current) {
-    var items = [
-      { value: '', label: '全部', count: list.length },
-      { value: '发生中', label: type.activeLabel || '发生中', count: list.filter(function (item) { return item.eventStatus === '发生中'; }).length },
-      { value: '已恢复', label: '已恢复', count: list.filter(function (item) { return item.eventStatus === '已恢复'; }).length }
-    ];
-    return '<div class="ac-status-switch" role="tablist" aria-label="事件状态">' + items.map(function (item) {
-      var on = current != null && (current || '') === item.value;
-      return '<button type="button" class="' + (on ? 'is-active' : '') + '" aria-pressed="' + (on ? 'true' : 'false') + '" onclick="acStatus(\'' + item.value + '\')"><span>' + item.label + '</span><b>' + item.count + '</b></button>';
+      return '<button type="button" class="ac-metric ac-metric-' + metric.tone + (active === metric.key ? ' is-active' : '') + '" onclick="acMetric(\'' + metric.key + '\')"><span>' + esc(metric.label) + '</span><b>' + metricCount(list, metric, type) + '</b><small>' + esc(metric.copy) + '</small></button>';
     }).join('') + '</div>';
   }
   function tabsHtml(tab) {
@@ -506,21 +551,44 @@
       + '<div class="cb-entity-panel" data-org-panel hidden><input class="filter-control" data-org-search placeholder="搜索组织或部门" oninput="acFilterDeptTree(this.value)"><div class="cb-entity-tree" data-org-list role="listbox">' + orgTreeListHtml(selected) + '</div></div></div>';
   }
   function renderFilters(type, filters) {
-    var html = '<div class="filter-panel ac-filter"><div class="filter-row">'
+    var html = '<div class="filter-panel ac-filter ac-list-filter"><div class="filter-row">'
+      + field('事件状态', '<select class="filter-control" id="acEventStatus" aria-label="事件状态">'
+        + option('', '全部', filters.eventStatus)
+        + option('发生中', type.activeLabel || '发生中', filters.eventStatus)
+        + option('已恢复', '已恢复', filters.eventStatus) + '</select>')
       + field(type.orgLabel, type.orgKind === 'dept' ? deptFilterHtml(filters.project) : '<select class="filter-control" id="acProject">' + options(projectNames(), filters.project) + '</select>')
-      + field('车牌 / 司机 / 任务单', '<input class="filter-control" id="acKeyword" value="' + esc(filters.keyword) + '" placeholder="车牌 / 司机 / 任务单" onkeydown="if(event.key===\'Enter\')acApply()">')
-      + field('告警等级', '<select class="filter-control" id="acLevel">' + options(LEVEL_NAMES, filters.level) + '</select>')
-      + field('处理状态', '<select class="filter-control" id="acHandleStatus">' + options(HANDLE_STATUSES, filters.handleStatus) + '</select>');
-    if (type.extraLabel) html += field(type.extraLabel, '<input class="filter-control" id="acExtra" value="' + esc(filters.extra) + '" placeholder="' + esc(type.extraPlaceholder) + '" onkeydown="if(event.key===\'Enter\')acApply()">');
+      + field('车牌号', '<input class="filter-control" id="acPlate" aria-label="车牌号" value="' + esc(filters.plate) + '" placeholder="请输入车牌号" onkeydown="if(event.key===\'Enter\')acApply()">')
+      + field('司机', '<input class="filter-control" id="acDriverName" aria-label="司机" value="' + esc(filters.driverName) + '" placeholder="请输入司机姓名" onkeydown="if(event.key===\'Enter\')acApply()">')
+      + field('任务单号', '<input class="filter-control" id="acTaskId" aria-label="任务单号" value="' + esc(filters.taskId) + '" placeholder="请输入任务单号" onkeydown="if(event.key===\'Enter\')acApply()">')
+      + field('告警等级', '<select class="filter-control" id="acLevel">' + option('', '全部', filters.level) + LEVEL_FILTER_ORDER.map(function (level) { return option(level, levelLabel(level), filters.level); }).join('') + '</select>');
+    if (!type.readOnly) html += field('处理状态', '<select class="filter-control" id="acHandleStatus">' + options(HANDLE_STATUSES, filters.handleStatus) + '</select>');
+    if (type.extraLabel) html += field(type.extraLabel, '<input class="filter-control" id="acExtra" aria-label="' + esc(type.extraLabel) + '" value="' + esc(filters.extra) + '" placeholder="' + esc(type.extraPlaceholder) + '" onkeydown="if(event.key===\'Enter\')acApply()">');
+    if (type.code === 'TRANSPORT_PARKING') {
+      html += '<div class="filter-item ac-duration-filter"><label class="filter-label">&nbsp;</label><div class="ac-duration-combo">'
+        + '<select class="filter-control" id="acParkingDurationOp" aria-label="停车时长比较方式">'
+        + DURATION_OPS.map(function (op) { return option(op, '停车时长 ' + op, filters.parkingDurationOp || '>='); }).join('')
+        + '</select>'
+        + '<input class="filter-control" id="acParkingDurationMinutes" type="number" min="0" step="1" inputmode="numeric" aria-label="停车时长分钟数" value="' + esc(filters.parkingDurationMinutes || '') + '" onkeydown="if(event.key===\'Enter\')acApply()">'
+        + '<span class="ac-duration-unit">分钟</span></div></div>';
+    }
     if (type.code === 'AREA_STAY_TIMEOUT') {
       var fenceTypes = store() && store().getAreaTypes ? store().getAreaTypes() : ['装货区', '卸货区', '充电站', '停车区', '中转区', '其他'];
       html += field('围栏类型', '<select class="filter-control" id="acFenceType">' + options(fenceTypes, filters.fenceType) + '</select>');
     }
-    html += field('开始日期', '<input class="filter-control" id="acStart" type="date" value="' + esc(filters.start) + '">')
-      + field('结束日期', '<input class="filter-control" id="acEnd" type="date" value="' + esc(filters.end) + '">');
+    if (type.code === 'TRANSPORT_PARKING') {
+      html += field('停车开始时间', '<input class="filter-control" id="acStart" type="datetime-local" step="3600" value="' + esc(datetimeLocalValue(filters.start)) + '" aria-label="停车开始时间">')
+        + field('停车结束时间', '<input class="filter-control" id="acEnd" type="datetime-local" step="3600" value="' + esc(datetimeLocalValue(filters.end)) + '" aria-label="停车结束时间">');
+    } else if (type.code === 'UNLOAD_WEIGHBILL_MISSING') {
+      html += field('告警开始时间', '<input class="filter-control" id="acStart" type="datetime-local" step="3600" value="' + esc(datetimeLocalValue(filters.start)) + '" aria-label="告警开始时间">')
+        + field('告警结束时间', '<input class="filter-control" id="acEnd" type="datetime-local" step="3600" value="' + esc(datetimeLocalValue(filters.end)) + '" aria-label="告警结束时间">');
+    } else {
+      html += field('开始日期', '<input class="filter-control" id="acStart" type="date" value="' + esc(filters.start) + '">')
+        + field('结束日期', '<input class="filter-control" id="acEnd" type="date" value="' + esc(filters.end) + '">');
+    }
     return html + '</div><div class="filter-actions"><button class="btn btn-default" type="button" onclick="acReset()">重置</button><button class="btn btn-primary" type="button" onclick="acApply()">查询</button></div></div>';
   }
   function actionsHtml(event) {
+    if (typeByCode(event.ruleCode || event.alertType).readOnly) return '<a class="link" href="javascript:void(0)" onclick="acView(\'' + esc(event.id) + '\')">查看详情</a>';
     var actions = '<a class="link" href="javascript:void(0)" onclick="acView(\'' + esc(event.id) + '\')">详情</a>';
     if (event.handleStatus !== '已处理') actions += '<a class="link" href="javascript:void(0)" onclick="acHandle(\'' + esc(event.id) + '\')">处理</a>';
     return actions;
@@ -557,8 +625,11 @@
     var kind = (rule && rule.scopeType) || '';
     return kind === '自定义车辆' || kind === '指定车辆' ? '自定义车辆' : '组织部门';
   }
+  function isVehicleOrgCode(code) {
+    return code === 'TRANSPORT_PARKING' || code === 'UNLOAD_WEIGHBILL_MISSING';
+  }
   function scopeLabel(type, rule) {
-    if (type.code === 'TRANSPORT_PARKING') return parkingScopeMode(rule);
+    if (isVehicleOrgCode(type.code)) return parkingScopeMode(rule);
     if (type.code === 'AREA_STAY_TIMEOUT') {
       if ((rule.fenceIds || []).length) return '指定围栏';
       if (rule.areaType && rule.areaType !== '全部类型') return '区域类型';
@@ -568,7 +639,7 @@
     return rule && rule.scopeType === '指定项目' ? '指定项目' : '全部项目';
   }
   function scopeObject(type, rule) {
-    if (type.code === 'TRANSPORT_PARKING') {
+    if (isVehicleOrgCode(type.code)) {
       if (rule.scopeType === '指定车辆' || rule.scopeType === '自定义车辆') return joinedScope(rule.vehiclePlates || [], '辆', '未选车辆');
       if (rule.scopeType === '组织部门') return joinedScope(rule.departmentNames || [], '个部门', '未选部门');
       if (rule.scopeType === '指定项目') return joinedScope(rule.projectNames || [], '个项目', '未选项目');
@@ -593,59 +664,83 @@
   function ruleSummary(type, rule) {
     var levels = enabledLevels(rule);
     if (!levels.length) return '全部等级已停用';
-    if (type.code === 'VEHICLE_OVERSPEED') return levels.map(function (level) { return level.level + '≥' + level.speedThreshold + 'km/h/' + speedDurationLabel(level.durationSeconds); }).join(' / ');
-    if (type.code === 'DRIVER_FATIGUE') return levels.map(function (level) { return formatHours(level.thresholdMinutes) + 'h'; }).join(' / ') + '，有效休息' + Number((rule.recoveryConfig || {}).restThresholdMinutes || 20) + 'min';
-    if (type.code === 'VEHICLE_LOW_SOC') return levels.map(function (level) { return level.level + '≤' + level.threshold + '%'; }).join(' / ');
-    if (type.code === 'UNLOAD_WEIGHBILL_MISSING') return '离场' + levels.map(function (level) { return level.threshold; }).join(' / ') + 'min仍未上传';
-    return levels.map(function (level) { return level.level + '≥' + level.threshold + '分钟'; }).join(' / ');
+    if (type.code === 'VEHICLE_OVERSPEED') return levels.map(function (level) { return levelLabel(level.level) + '≥' + level.speedThreshold + 'km/h/' + speedDurationLabel(level.durationSeconds); }).join(' / ');
+    if (type.code === 'DRIVER_FATIGUE') return levels.map(function (level) { return levelLabel(level.level) + '≥' + formatHours(level.thresholdMinutes) + 'h'; }).join(' / ') + '，有效休息' + Number((rule.recoveryConfig || {}).restThresholdMinutes || 20) + 'min';
+    if (type.code === 'VEHICLE_LOW_SOC') return levels.map(function (level) { return levelLabel(level.level) + '≤' + level.threshold + '%'; }).join(' / ');
+    if (type.code === 'UNLOAD_WEIGHBILL_MISSING') return '离场后未上传：' + levels.map(function (level) { return levelLabel(level.level) + '≥' + level.threshold + '分钟'; }).join(' / ');
+    return levels.map(function (level) { return levelLabel(level.level) + '≥' + level.threshold + '分钟'; }).join(' / ');
+  }
+  function parkingMonitorText(rule) {
+    if (!rule || rule.monitorPeriod !== '自定义') return '全天';
+    return (rule.monitorStart || '—') + '-' + (rule.monitorEnd || '—');
   }
   function renderRuleList(type, filters) {
     var q = String(filters.name || '').trim().toLowerCase();
+    var isParking = type.code === 'TRANSPORT_PARKING';
+    var colCount = isParking ? 8 : 7;
     var rows = typeRules(type).filter(function (rule) {
       if (q && String(rule.name || '').toLowerCase().indexOf(q) < 0) return false;
-      if (filters.scopeType && scopeLabel(type, rule) !== filters.scopeType) return false;
       if (filters.status === '启用' && !rule.enabled) return false;
       if (filters.status === '停用' && rule.enabled) return false;
       return true;
     }).sort(function (a, b) { return String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')); });
     var body = rows.length ? rows.map(function (rule) {
       var scope = scopeLine(type, rule);
-      var canDelete = rule.id !== type.protectedId;
-      return '<tr><td>' + esc(rule.name || '未命名规则') + '</td><td title="' + esc(scope.title) + '">' + esc(scope.text) + '</td><td>' + esc(ruleSummary(type, rule)) + '</td><td>' + (rule.enabled ? badge('启用', 'primary') : badge('停用', 'gray')) + '</td><td>' + esc(rule.updatedAt || '—') + '</td><td>' + esc(rule.updatedBy || '—') + '</td><td class="sticky-col-r ac-actions">'
+      var canDelete = isParking || rule.id !== type.protectedId;
+      return '<tr><td>' + esc(rule.name || '未命名规则') + '</td><td title="' + esc(scope.title) + '">' + esc(scope.text) + '</td>'
+        + (isParking ? '<td>' + esc(parkingMonitorText(rule)) + '</td>' : '')
+        + '<td>' + esc(ruleSummary(type, rule)) + '</td><td>' + (rule.enabled ? badge('启用', 'primary') : badge('停用', 'gray')) + '</td><td>' + esc(rule.updatedAt || '—') + '</td><td>' + esc(rule.updatedBy || '—') + '</td><td class="sticky-col-r ac-actions">'
         + '<a class="link" href="javascript:void(0)" onclick="acEditRule(\'' + esc(rule.id) + '\')">编辑</a>'
         + '<a class="link" href="javascript:void(0)" onclick="acToggleRule(\'' + esc(rule.id) + '\')">' + (rule.enabled ? '停用' : '启用') + '</a>'
         + (canDelete ? '<a class="link" href="javascript:void(0)" onclick="acRemoveRule(\'' + esc(rule.id) + '\')">删除</a>' : '')
         + '</td></tr>';
-    }).join('') : '<tr><td colspan="7"><div class="empty-state"><b>没有符合条件的规则</b><p>可调整筛选条件，或新增一条规则。</p></div></td></tr>';
+    }).join('') : '<tr><td colspan="' + colCount + '"><div class="empty-state"><b>没有符合条件的规则</b><p>可调整筛选条件，或新增一条规则。</p></div></td></tr>';
     return '<div class="ac-rule-list"><div class="filter-panel ac-filter"><div class="filter-row">'
       + field('规则名称', '<input class="filter-control" id="acRuleName" value="' + esc(filters.name) + '" placeholder="支持模糊搜索" onkeydown="if(event.key===\'Enter\')acRuleApply()">')
-      + field('适用范围', '<select class="filter-control" id="acRuleScope">' + option('', '全部', filters.scopeType) + type.scopeOptions.map(function (item) { return option(item, item, filters.scopeType); }).join('') + '</select>')
       + field('状态', '<select class="filter-control" id="acRuleStatus">' + option('', '全部', filters.status) + option('启用', '启用', filters.status) + option('停用', '停用', filters.status) + '</select>')
       + '</div><div class="filter-actions"><button class="btn btn-default" type="button" onclick="acRuleReset()">重置</button><button class="btn btn-primary" type="button" onclick="acRuleApply()">查询</button></div></div>'
       + '<section class="table-section"><div class="table-toolbar"><div class="left"><span class="detail-section-title">' + esc(type.ruleTitle) + '</span><span class="ac-table-count">共 ' + rows.length + ' 条</span></div><div class="right"><button class="btn btn-primary" type="button" onclick="acAddRule()">+ 新增规则</button></div></div>'
-      + '<div class="table-wrap ac-table-wrap"><table class="data-table ac-table ac-rule-table"><thead><tr><th>规则名称</th><th>适用范围</th><th>规则摘要</th><th>状态</th><th>更新时间</th><th>更新人</th><th class="sticky-col-r">操作</th></tr></thead><tbody>' + body + '</tbody></table></div>'
+      + '<div class="table-wrap ac-table-wrap"><table class="data-table ac-table ac-rule-table' + (isParking ? ' ac-parking-rule-table' : '') + '"><thead><tr><th>规则名称</th><th>适用范围</th>'
+      + (isParking ? '<th>监控时段</th>' : '')
+      + '<th>规则摘要</th><th>状态</th><th>更新时间</th><th>更新人</th><th class="sticky-col-r">操作</th></tr></thead><tbody>' + body + '</tbody></table></div>'
       + pagination(rows.length) + '</section></div>';
   }
   function renderAlertPage(type) {
     var state = pageOf(type.page);
+    if (type.readOnly) {
+      state.listFilters.handleStatus = '';
+      if (state.activeMetric === 'pending') { state.activeMetric = ''; state.listFilters.metric = ''; }
+    }
     if (window.__acPreferTab) { state.tab = window.__acPreferTab; window.__acPreferTab = ''; }
     var all = typeEvents(events(), type.code);
     var rows = filterEvents(all, state.listFilters, type);
     return '<div class="content-area page-standard ac-page"><div class="breadcrumb"><span>告警中心</span><span class="sep">/</span><span class="current">' + esc(type.name) + '</span></div>'
       + '<div class="page-header"><div><div class="page-title">' + esc(type.name) + '</div><p class="detail-section-sub">' + esc(type.summary) + '</p></div></div>'
       + tabsHtml(state.tab)
-      + (state.tab === 'rules' ? renderRuleList(type, state.ruleFilters) : renderMetrics(type, all, state.activeMetric) + renderStatusSwitch(type, all, state.activeMetric && !state.listFilters.eventStatus ? null : state.listFilters.eventStatus) + renderFilters(type, state.listFilters) + renderAlertTable(type, rows))
+      + (state.tab === 'rules' ? renderRuleList(type, state.ruleFilters) : renderMetrics(type, all, state.activeMetric) + renderFilters(type, state.listFilters) + renderAlertTable(type, rows))
       + '</div>';
   }
 
   function formField(label, control, hint, full) {
     return '<div class="form-item' + (full ? ' full' : '') + '"><label class="form-label">' + label + '</label>' + control + (hint ? '<div class="form-hint">' + hint + '</div>' : '') + '</div>';
   }
+  function parkingSpeedPresetTip(value) {
+    var n = Number(value);
+    if (!isFinite(n)) return '—km/h以下判定为停车';
+    var shown = Math.round(n * 10) / 10;
+    if (shown === Math.floor(shown)) shown = Math.floor(shown);
+    return shown + 'km/h以下判定为停车';
+  }
   function formSection(title, inner) {
     return '<section class="form-section"><div class="form-section-title"><span class="section-icon"></span>' + title + '</div>' + inner + '</section>';
   }
-  function modalShell(title, name, body) {
-    return '<div class="modal ac-rule-modal" role="dialog" aria-modal="true"><div class="modal-header"><div><div class="modal-title">' + esc(title) + '</div>' + (name ? '<p class="ac-modal-sub">' + esc(name) + '</p>' : '') + '</div><button class="modal-close" type="button" onclick="acCloseRuleModal()" aria-label="关闭">×</button></div><div class="modal-body">' + body + '</div><div class="modal-footer"><button class="btn btn-default" type="button" onclick="acCloseRuleModal()">取消</button><button class="btn btn-primary" type="button" onclick="acSaveRule()">保存</button></div></div>';
+  function ruleModalExtraClass(code) {
+    if (code === 'TRANSPORT_PARKING') return 'ac-parking-rule-modal';
+    if (code === 'UNLOAD_WEIGHBILL_MISSING') return 'ac-weighbill-rule-modal';
+    return '';
+  }
+  function modalShell(title, name, body, extraClass) {
+    return '<div class="modal ac-rule-modal' + (extraClass ? ' ' + extraClass : '') + '" role="dialog" aria-modal="true"><div class="modal-header"><div><div class="modal-title">' + esc(title) + '</div>' + (name ? '<p class="ac-modal-sub">' + esc(name) + '</p>' : '') + '</div><button class="modal-close" type="button" onclick="acCloseRuleModal()" aria-label="关闭">×</button></div><div class="modal-body">' + body + '</div><div class="modal-footer"><button class="btn btn-default" type="button" onclick="acCloseRuleModal()">取消</button><button class="btn btn-primary" type="button" onclick="acSaveRule()">保存</button></div></div>';
   }
   function baseFields(item) {
     return '<div class="form-grid col-2">'
@@ -657,7 +752,7 @@
   function levelRows(item, label, control) {
     return '<table class="data-table ac-level-table"><thead><tr><th>告警等级</th><th>是否启用</th><th>' + label + '</th></tr></thead><tbody>'
       + (item.levels || []).map(function (level, index) {
-        return '<tr><td>' + esc(level.level) + '</td><td><label class="ac-check"><input class="wr-level-enabled" data-level-index="' + index + '" type="checkbox"' + (level.enabled !== false ? ' checked' : '') + '>启用</label></td><td>' + control(level, index) + '</td></tr>';
+        return '<tr><td>' + esc(levelLabel(level.level)) + '</td><td><label class="ac-check"><input class="wr-level-enabled" data-level-index="' + index + '" type="checkbox"' + (level.enabled !== false ? ' checked' : '') + '>启用</label></td><td>' + control(level, index) + '</td></tr>';
       }).join('') + '</tbody></table>';
   }
   function minuteControl(level, index) {
@@ -681,10 +776,7 @@
         }).join('') + '</div></div>';
     }).join('');
   }
-  function parkingModalBody(item) {
-    var type = typeByCode('TRANSPORT_PARKING');
-    var detect = item.detectConfig || {};
-    var recovery = item.recoveryConfig || {};
+  function vehicleOrgScopeSection(item) {
     var scopeMode = parkingScopeMode(item);
     var vehicles = store() && store().getParkingVehicles ? store().getParkingVehicles() : [];
     var selectedPlates = scopeMode === '自定义车辆' ? (item.vehiclePlates || []) : [];
@@ -692,34 +784,39 @@
     var choice = function (value) {
       return '<label class="ac-scope-choice"><input type="radio" name="wrScopeMode" value="' + value + '"' + (scopeMode === value ? ' checked' : '') + ' onchange="acScopeChange()"><span>' + value + '</span></label>';
     };
-    return formSection('基础信息', baseFields(item) + '<div class="form-grid col-2">'
+    return formSection('适用范围', '<div class="ac-scope-choices" role="radiogroup" aria-label="适用范围">' + choice('自定义车辆') + choice('组织部门') + '</div>'
+      + '<div class="ac-scope-panel" id="wrOrgBox"' + (scopeMode === '组织部门' ? '' : ' hidden') + '><div class="ac-scope-bar"><p class="ac-scope-count" id="wrOrgCount">已选择 ' + selectedDepts.length + ' 个部门</p></div><input class="form-control-text" id="wrOrgQuery" placeholder="搜索组织或部门" oninput="acFilterOrg()"><div class="ac-org-tree">' + parkingOrgTreeHtml(selectedDepts) + '</div></div>'
+      + '<div class="ac-scope-panel" id="wrVehicleBox"' + (scopeMode === '自定义车辆' ? '' : ' hidden') + '><div class="ac-scope-bar"><p class="ac-scope-count" id="wrVehicleCount">已选择 ' + selectedPlates.length + ' 辆</p><div class="ac-scope-actions"><button class="btn btn-default btn-sm" type="button" onclick="acVehicleSelectAll(true)">全选</button><button class="btn btn-default btn-sm" type="button" onclick="acVehicleSelectAll(false)">取消全选</button></div></div><input class="form-control-text" id="wrVehicleQuery" placeholder="搜索车牌号" oninput="acFilterVehicles()"><div class="ac-check-list ac-vehicle-list">'
+      + (vehicles.map(function (vehicle) {
+        var meta = vehicle.departmentName || vehicle.projectName || '';
+        return '<label class="ac-vehicle-option ac-check" data-plate="' + esc(vehicle.plate) + '"><input type="checkbox" name="wrVehiclePlates" value="' + esc(vehicle.plate) + '"' + (selectedPlates.indexOf(vehicle.plate) >= 0 ? ' checked' : '') + ' onchange="acParkingCount()">' + esc(vehicle.plate) + (meta ? '<small>' + esc(meta) + '</small>' : '') + '</label>';
+      }).join('') || '<div class="ac-org-empty">当前没有车辆</div>') + '</div></div>');
+  }
+  function parkingModalBody(item) {
+    var type = typeByCode('TRANSPORT_PARKING');
+    var detect = item.detectConfig || {};
+    var recovery = item.recoveryConfig || {};
+    return formSection('基础信息', '<div class="form-grid col-3">'
+      + formField('规则名称 <span class="req">*</span>', '<input class="form-control-text" id="wrName" value="' + esc(item.name) + '" maxlength="40" placeholder="最多40字">', '')
+      + formField('规则状态 <span class="req">*</span>', '<select class="form-control-text" id="wrEnabled">' + option('启用', '启用', item.enabled !== false ? '启用' : '停用') + option('停用', '停用', item.enabled !== false ? '启用' : '停用') + '</select>', '')
       + formField('监控时段 <span class="req">*</span>', '<select class="form-control-text" id="wrMonitorPeriod" onchange="acMonitorPeriodChange()">' + option('全天', '全天', item.monitorPeriod || '全天') + option('自定义', '自定义', item.monitorPeriod) + '</select>', '')
       + '</div><div class="form-grid col-2" id="wrMonitorRange"' + (item.monitorPeriod === '自定义' ? '' : ' hidden') + '>'
       + formField('开始时间', '<input class="form-control-text" id="wrMonitorStart" type="time" value="' + esc(item.monitorStart || '22:00') + '">', '')
       + formField('结束时间', '<input class="form-control-text" id="wrMonitorEnd" type="time" value="' + esc(item.monitorEnd || '06:00') + '">', '')
       + '<div class="form-item full"><div class="form-hint">开始时间大于结束时间时按跨天时段计算，例如 22:00-06:00</div></div></div>')
-      + formSection('适用范围', '<div class="ac-scope-choices" role="radiogroup" aria-label="适用范围">' + choice('组织部门') + choice('自定义车辆') + '</div>'
-        + '<div class="ac-scope-panel" id="wrOrgBox"' + (scopeMode === '组织部门' ? '' : ' hidden') + '><div class="ac-scope-bar"><p class="ac-scope-count" id="wrOrgCount">已选择 ' + selectedDepts.length + ' 个部门</p></div><input class="form-control-text" id="wrOrgQuery" placeholder="搜索组织或部门" oninput="acFilterOrg()"><div class="ac-org-tree">' + parkingOrgTreeHtml(selectedDepts) + '</div></div>'
-        + '<div class="ac-scope-panel" id="wrVehicleBox"' + (scopeMode === '自定义车辆' ? '' : ' hidden') + '><div class="ac-scope-bar"><p class="ac-scope-count" id="wrVehicleCount">已选择 ' + selectedPlates.length + ' 辆</p><div class="ac-scope-actions"><button class="btn btn-default btn-sm" type="button" onclick="acVehicleSelectAll(true)">全选</button><button class="btn btn-default btn-sm" type="button" onclick="acVehicleSelectAll(false)">取消全选</button></div></div><input class="form-control-text" id="wrVehicleQuery" placeholder="搜索车牌号" oninput="acFilterVehicles()"><div class="ac-check-list ac-vehicle-list">'
-        + (vehicles.map(function (vehicle) {
-          var meta = vehicle.departmentName || vehicle.projectName || '';
-          return '<label class="ac-vehicle-option ac-check" data-plate="' + esc(vehicle.plate) + '"><input type="checkbox" name="wrVehiclePlates" value="' + esc(vehicle.plate) + '"' + (selectedPlates.indexOf(vehicle.plate) >= 0 ? ' checked' : '') + ' onchange="acParkingCount()">' + esc(vehicle.plate) + (meta ? '<small>' + esc(meta) + '</small>' : '') + '</label>';
-        }).join('') || '<div class="ac-org-empty">当前没有车辆</div>') + '</div></div>')
-      + formSection('业务识别条件', '<div class="form-grid col-2">'
+      + vehicleOrgScopeSection(item)
+      + formSection('停车预警事件识别条件', '<div class="form-grid col-3">'
         + formField('监控对象', '<input class="form-control-text" value="执行运输任务中的车辆" disabled>', '任务执行中且已绑定当前任务')
-        + formField('静止速度阈值', '<div class="wr-unit-input"><input class="form-control-text" id="wrStillSpeed" type="number" min="0" max="20" step="0.1" value="' + Number(detect.stillSpeedKph || 3) + '"><em>km/h</em></div>', '0～20 km/h')
-        + formField('最小持续静止时间', '<div class="wr-unit-input"><input class="form-control-text" id="wrMinStill" type="number" min="1" max="120" value="' + Number(detect.minStillMinutes || 5) + '"><em>分钟</em></div>', '用于过滤短暂停车和定位抖动，1～120 分钟')
-        + formField('排除装货作业', '<label class="ac-check"><input id="wrExcludeLoading" type="checkbox"' + (detect.excludeLoading !== false ? ' checked' : '') + '>开启</label>', '')
-        + formField('排除卸货作业', '<label class="ac-check"><input id="wrExcludeUnloading" type="checkbox"' + (detect.excludeUnloading !== false ? ' checked' : '') + '>开启</label>', '')
-        + formField('排除充电状态', '<label class="ac-check"><input id="wrExcludeCharging" type="checkbox"' + (detect.excludeCharging !== false ? ' checked' : '') + '>开启</label>', '')
+        + formField('停车预警速度预设', '<div class="wr-unit-input"><input class="form-control-text" id="wrStillSpeed" type="number" min="0" max="20" step="0.1" value="' + Number(detect.stillSpeedKph || 3) + '" oninput="acParkingSpeedTip()"><em>km/h</em></div><div class="form-hint" id="wrStillSpeedTip">' + esc(parkingSpeedPresetTip(detect.stillSpeedKph || 3)) + '</div>', '')
+        + formField('持续时间', '<div class="wr-unit-input"><input class="form-control-text" id="wrMinStill" type="number" min="1" max="120" value="' + Number(detect.minStillMinutes || 5) + '"><em>分钟</em></div>', '用于过滤短暂停车和定位抖动，1～120 分钟')
         + '</div>')
       + formSection('告警等级', '<p class="wr-level-help">同一次连续停车只产生 1 个告警事件。启用等级的时长必须按风险递增。</p>' + levelRows(item, '连续异常停车时长', minuteControl))
-      + formSection('恢复条件', '<div class="form-grid col-2">'
-        + formField('恢复速度阈值', '<div class="wr-unit-input"><input class="form-control-text" id="wrRecoverSpeed" type="number" min="1" max="80" step="0.1" value="' + Number(recovery.recoverSpeedKph || 5) + '"><em>km/h</em></div>', '必须高于静止速度阈值')
+      + formSection('恢复条件', '<div class="form-grid col-3">'
+        + formField('恢复速度阈值', '<div class="wr-unit-input"><input class="form-control-text" id="wrRecoverSpeed" type="number" min="1" max="80" step="0.1" value="' + Number(recovery.recoverSpeedKph || 5) + '"><em>km/h</em></div>', '必须高于停车预警速度预设')
         + formField('恢复持续时间', '<div class="wr-unit-input"><input class="form-control-text" id="wrRecoverHold" type="number" min="1" max="60" value="' + Number(recovery.recoverDurationMinutes || 3) + '"><em>分钟</em></div>', '1～60 分钟')
-        + formField('任务结束自动结束监测', '<label class="ac-check"><input id="wrEndOnTask" type="checkbox"' + (recovery.endOnTaskComplete !== false ? ' checked' : '') + '>开启</label>', '', true)
+        + formField('任务结束自动结束监测', '<label class="ac-check"><input id="wrEndOnTask" type="checkbox"' + (recovery.endOnTaskComplete !== false ? ' checked' : '') + '>开启</label>', '')
         + '</div>')
-      + noteSection(type);
+      + '<p class="ac-mock-hint ac-rule-note">' + esc(type.note) + '</p>';
   }
   function areaFenceOptions(item) {
     var fences = store() && store().getAreaStayFences ? store().getAreaStayFences() : [];
@@ -775,7 +872,7 @@
         + (item.levels || []).map(function (level, index) {
           var unit = level.durationUnit === '分钟' ? '分钟' : '秒';
           var shown = unit === '分钟' ? (Number(level.durationSeconds || 0) / 60) : Number(level.durationSeconds || 0);
-          return '<tr><td>' + esc(level.level) + '</td><td><label class="ac-check"><input class="wr-level-enabled" data-level-index="' + index + '" type="checkbox"' + (level.enabled !== false ? ' checked' : '') + '>启用</label></td>'
+          return '<tr><td>' + esc(levelLabel(level.level)) + '</td><td><label class="ac-check"><input class="wr-level-enabled" data-level-index="' + index + '" type="checkbox"' + (level.enabled !== false ? ' checked' : '') + '>启用</label></td>'
             + '<td><div class="wr-unit-input ac-level-input"><input class="form-control-text wr-speed" data-level-index="' + index + '" type="number" min="1" max="200" value="' + Number(level.speedThreshold || 0) + '"><em>km/h</em></div></td>'
             + '<td><div class="wr-unit-input ac-speed-duration ac-level-input"><input class="form-control-text wr-duration" data-level-index="' + index + '" type="number" min="1" step="1" value="' + shown + '"><select class="wr-duration-unit" data-level-index="' + index + '" aria-label="持续时间单位"><option value="秒"' + (unit === '秒' ? ' selected' : '') + '>秒</option><option value="分钟"' + (unit === '分钟' ? ' selected' : '') + '>分钟</option></select></div></td></tr>';
         }).join('') + '</tbody></table>')
@@ -797,15 +894,18 @@
   function weighbillModalBody(item) {
     var type = typeByCode(item.code);
     var detect = item.detectConfig || {};
-    return formSection('基础信息', baseFields(item)) + lateProjectSection(item)
-      + formSection('业务识别条件', '<div class="form-grid col-2">'
+    return formSection('基础信息', '<div class="form-grid col-3">'
+      + formField('规则名称 <span class="req">*</span>', '<input class="form-control-text" id="wrName" value="' + esc(item.name) + '" maxlength="40" placeholder="最多40字">', '')
+      + formField('规则状态 <span class="req">*</span>', '<select class="form-control-text" id="wrEnabled">' + option('启用', '启用', item.enabled !== false ? '启用' : '停用') + option('停用', '停用', item.enabled !== false ? '启用' : '停用') + '</select>', '')
+      + '</div>')
+      + vehicleOrgScopeSection(item)
+      + formSection('业务识别条件', '<div class="form-grid col-3">'
         + formField('触发节点', '<input class="form-control-text" value="' + esc(detect.triggerNode || '离开卸货地') + '" disabled>', '')
         + formField('磅单状态', '<input class="form-control-text" value="' + esc(detect.weighbillStatus || '未上传') + '" disabled>', '')
-        + formField('忽略上传处理中', '<input class="form-control-text" value="是" disabled>', '上传中不产生告警')
         + '</div>')
       + formSection('告警等级', '<p class="wr-level-help">同一卸货节点只产生一条告警，15 / 30 / 60 分钟在原事件上升级。</p>' + levelRows(item, '离场后仍未上传', minuteControl))
-      + formSection('恢复条件', '<div class="wr-recovery"><b>恢复条件</b><span>磅单上传成功或确认无需磅单</span></div>')
-      + noteSection(type);
+      + formSection('恢复条件', formField('自动恢复', '<input class="form-control-text" value="磅单上传成功" disabled>', ''))
+      + '<p class="ac-mock-hint ac-rule-note">' + esc(type.note) + '</p>';
   }
   function socModalBody(item) {
     var type = typeByCode(item.code);
@@ -816,11 +916,11 @@
         + formField('SOC持续满足', '<div class="wr-unit-input"><input class="form-control-text" id="wrConfirmMinutes" type="number" min="1" max="30" value="' + Number(confirm.confirmMinutes || 2) + '"><em>分钟</em></div>', '1～30 分钟，过滤单点抖动')
         + formField('数据有效期', '<div class="wr-unit-input"><input class="form-control-text" id="wrDataValid" type="number" min="1" max="60" value="' + Number(confirm.dataValidMinutes || 5) + '"><em>分钟</em></div>', '超过有效期不产生新告警')
         + '</div>')
-      + formSection('告警等级', '<p class="wr-level-help">SOC 越低风险越高。启用等级必须满足一般阈值高于严重，严重高于紧急。</p>' + levelRows(item, 'SOC 阈值', function (level, index) {
+      + formSection('告警等级', '<p class="wr-level-help">SOC 越低风险越高。启用等级必须满足低风险阈值高于中风险，中风险高于高风险。</p>' + levelRows(item, 'SOC 阈值', function (level, index) {
         return '<div class="wr-unit-input ac-level-input"><input class="form-control-text wr-threshold" data-level-index="' + index + '" type="number" min="1" max="100" value="' + Number(level.threshold || 0) + '"><em>%</em></div>';
       }))
       + formSection('恢复条件', '<div class="form-grid col-2">'
-        + formField('恢复 SOC', '<div class="wr-unit-input"><input class="form-control-text" id="wrRecoverSoc" type="number" min="1" max="100" value="' + Number(recovery.recoverSoc || 35) + '"><em>%</em></div>', '必须高于一般告警 SOC')
+        + formField('恢复 SOC', '<div class="wr-unit-input"><input class="form-control-text" id="wrRecoverSoc" type="number" min="1" max="100" value="' + Number(recovery.recoverSoc || 35) + '"><em>%</em></div>', '必须高于低风险告警 SOC')
         + formField('恢复持续时间', '<div class="wr-unit-input"><input class="form-control-text" id="wrRecoverHold" type="number" min="1" max="60" value="' + Number(recovery.recoverDurationMinutes || 2) + '"><em>分钟</em></div>', '开始充电不会立刻关闭仍偏低的事件')
         + '</div>')
       + noteSection(type);
@@ -902,6 +1002,19 @@
     if (scope === '指定项目' && !picked.length) return { error: '请选择至少一个项目' };
     return { scopeType: scope, projectIds: picked.map(function (item) { return item.id; }), projectNames: picked.map(function (item) { return item.name; }) };
   }
+  function readVehicleOrgScope() {
+    var scope = ((document.querySelector(HOST + ' input[name="wrScopeMode"]:checked') || {}).value) || '自定义车辆';
+    var depts = scope === '组织部门' ? checkedNamed('wrDeptIds') : [];
+    var plates = scope === '自定义车辆' ? checkedValues('wrVehiclePlates') : [];
+    if (scope === '组织部门' && !depts.length) return { error: '请选择至少一个组织部门' };
+    if (scope === '自定义车辆' && !plates.length) return { error: '请选择至少一辆车' };
+    return {
+      scopeType: scope, projectIds: [], projectNames: [],
+      departmentIds: depts.map(function (dept) { return dept.id; }),
+      departmentNames: depts.map(function (dept) { return dept.name; }),
+      vehiclePlates: plates
+    };
+  }
   function readPatch(rule) {
     var base = readNameEnabled();
     if (base.error) return base;
@@ -911,28 +1024,23 @@
       var monitorEnd = (document.getElementById('wrMonitorEnd') || {}).value || '23:00';
       if (monitorPeriod === '自定义' && (!monitorStart || !monitorEnd)) return { error: '请填写自定义监控时段' };
       var stillSpeed = Number((document.getElementById('wrStillSpeed') || {}).value);
-      if (!isFinite(stillSpeed) || stillSpeed < 0 || stillSpeed > 20) return { error: '静止速度阈值应为 0 到 20 km/h' };
-      var minStill = readInteger('wrMinStill', 1, 120, '最小持续静止时间');
+      if (!isFinite(stillSpeed) || stillSpeed < 0 || stillSpeed > 20) return { error: '停车预警速度预设应为 0 到 20 km/h' };
+      var minStill = readInteger('wrMinStill', 1, 120, '持续时间');
       if (minStill.error) return minStill;
       var recoverSpeed = Number((document.getElementById('wrRecoverSpeed') || {}).value);
-      if (!isFinite(recoverSpeed) || recoverSpeed <= stillSpeed) return { error: '恢复速度阈值必须高于静止速度阈值' };
+      if (!isFinite(recoverSpeed) || recoverSpeed <= stillSpeed) return { error: '恢复速度阈值必须高于停车预警速度预设' };
       var recoverHold = readInteger('wrRecoverHold', 1, 60, '恢复持续时间');
       if (recoverHold.error) return recoverHold;
-      var scope = ((document.querySelector(HOST + ' input[name="wrScopeMode"]:checked') || {}).value) || '组织部门';
-      var depts = scope === '组织部门' ? checkedNamed('wrDeptIds') : [];
-      var plates = scope === '自定义车辆' ? checkedValues('wrVehiclePlates') : [];
-      if (scope === '组织部门' && !depts.length) return { error: '请选择至少一个组织部门' };
-      if (scope === '自定义车辆' && !plates.length) return { error: '请选择至少一辆车' };
+      var parkingScope = readVehicleOrgScope();
+      if (parkingScope.error) return parkingScope;
       return {
         name: base.name, enabled: base.enabled, monitorPeriod: monitorPeriod, monitorStart: monitorStart, monitorEnd: monitorEnd,
-        levels: readLevels(rule.code), scopeType: scope, projectIds: [], projectNames: [],
-        departmentIds: depts.map(function (dept) { return dept.id; }), departmentNames: depts.map(function (dept) { return dept.name; }),
-        vehiclePlates: plates,
+        levels: readLevels(rule.code), scopeType: parkingScope.scopeType, projectIds: [], projectNames: [],
+        departmentIds: parkingScope.departmentIds, departmentNames: parkingScope.departmentNames,
+        vehiclePlates: parkingScope.vehiclePlates,
         detectConfig: {
           stillSpeedKph: stillSpeed, minStillMinutes: minStill.value,
-          excludeLoading: !!(document.getElementById('wrExcludeLoading') || {}).checked,
-          excludeUnloading: !!(document.getElementById('wrExcludeUnloading') || {}).checked,
-          excludeCharging: !!(document.getElementById('wrExcludeCharging') || {}).checked
+          excludeLoading: true, excludeUnloading: true, excludeCharging: true
         },
         recoveryConfig: { recoverSpeedKph: recoverSpeed, recoverDurationMinutes: recoverHold.value, endOnTaskComplete: !!(document.getElementById('wrEndOnTask') || {}).checked }
       };
@@ -963,6 +1071,11 @@
         speedSourcePolicy: (document.getElementById('wrSpeedSource') || {}).value || 'CAN_THEN_GPS',
         recoveryConfig: { recoverSpeedKph: speedRecover, recoverDurationSeconds: speedSecondsValue }
       }, projectsPatch);
+    }
+    if (rule.code === 'UNLOAD_WEIGHBILL_MISSING') {
+      var weighbillScope = readVehicleOrgScope();
+      if (weighbillScope.error) return weighbillScope;
+      return Object.assign({ name: base.name, enabled: base.enabled, code: rule.code, levels: readLevels(rule.code) }, weighbillScope);
     }
     var lateProjects = projectPatch('wrLateProjects');
     if (lateProjects.error) return lateProjects;
@@ -1002,11 +1115,11 @@
       enabled: (document.getElementById('wrEnabled') || {}).value || '',
       levels: readLevels(rule.code)
     };
-    if (rule.code === 'TRANSPORT_PARKING') {
+    if (isVehicleOrgCode(rule.code)) {
       common.scope = ((document.querySelector(HOST + ' input[name="wrScopeMode"]:checked') || {}).value) || '';
       common.departments = checkedValues('wrDeptIds');
       common.plates = checkedValues('wrVehiclePlates');
-      common.period = (document.getElementById('wrMonitorPeriod') || {}).value || '';
+      if (rule.code === 'TRANSPORT_PARKING') common.period = (document.getElementById('wrMonitorPeriod') || {}).value || '';
     } else if (isAreaCode(rule.code)) {
       common.scope = (document.getElementById('wrScope') || {}).value || '';
       common.areaType = (document.getElementById('wrAreaType') || {}).value || '';
@@ -1044,7 +1157,6 @@
     })[0] || null;
   }
   function currentLevelConfig(event) { return snapshotLevel(event, displayLevel(event)) || snapshotLevel(event, event.level); }
-  function generalLevelConfig(event) { return snapshotLevel(event, '一般'); }
   function metricsOf(event) { return event.metrics || {}; }
   function socConfirmMinutes(event) {
     var minutes = Number(((event.ruleSnapshot || {}).confirmConfig || {}).confirmMinutes);
@@ -1068,12 +1180,6 @@
     var end = event.recoveredAt || metrics.evaluatedAt || metrics.lastTelemetryAt;
     return preciseSpan(start, end) || '—';
   }
-  function departLabel(code) {
-    if (code === 'GEOFENCE') return '电子围栏';
-    if (code === 'DRIVER') return '司机确认离场';
-    if (code === 'MANUAL') return '人工修正';
-    return '—';
-  }
   function runStatusText(metrics) {
     metrics = metrics || {};
     if (metrics.charging === true || metrics.chargingStatus === '充电中') return '充电中';
@@ -1092,7 +1198,7 @@
       '云A·F4470': [102.668431, 24.501226], '云A·G2288': [102.905774, 24.287615],
       '云A·H3188': [102.612903, 24.446118], '云A·H6612': [102.978552, 24.533904],
       '云A·K4419': [100.812446, 22.004318], '云A·J5501': [100.796221, 21.982704],
-      '云A·S1008': [102.854337, 24.369882]
+      '云A·S1008': [102.854337, 24.369882], '云A·M7726': [102.758440, 24.392180]
     };
     if ((lng == null || lat == null) && known[event.plate]) {
       lng = known[event.plate][0];
@@ -1148,13 +1254,20 @@
     driverId: function (event) { return event.driverId || '—'; },
     parkingOrg: function (event) { return event.departmentName || event.projectName || '—'; },
     projectOrg: function (event) { return event.projectName || '—'; },
-    task: function (event) { return { html: taskLink(event.taskId) }; },
+    task: function (event) { return typeByCode(event.ruleCode || event.alertType).readOnly ? (event.taskId || '—') : { html: taskLink(event.taskId) }; },
     route: function (event) { return event.route || '—'; },
     cargo: function (event) { return event.cargo || '—'; },
     place: function (event) { return event.location || '—'; },
     alertTime: function (event) { return event.triggeredAt || '—'; },
     recoverTime: function (event) { return event.recoveredAt || '尚未恢复'; },
     ruleName: function (event) { return (event.ruleSnapshot || {}).ruleName || event.ruleName || '—'; },
+    alertLevel: function (event) { return { html: levelBadge(displayLevel(event)) }; },
+    eventState: function (event) { return { html: eventBadge(typeByCode(event.ruleCode || event.alertType), event) }; },
+    handleState: function (event) { return { html: handleBadge(event.handleStatus) }; },
+    headlineMetric: function (event) {
+      var type = typeByCode(event.ruleCode || event.alertType);
+      return summaryMetric(type, event).value;
+    },
     parkingStartedAt: function (event) { return parkingStartAt(event) || '—'; },
     parkingDuration: function (event) { return parkingDurationText(event); },
     coordinates: function (event) { return coordText(event); },
@@ -1191,15 +1304,9 @@
     unloadPlace: function (event) { return metricsOf(event).unloadLocation || event.location || '—'; },
     arrivedAt: function (event) { return metricsOf(event).unloadArrivedAt || '—'; },
     departedAt: function (event) { return metricsOf(event).unloadDepartedAt || '—'; },
-    departSource: function (event) { return departLabel(metricsOf(event).departTimeSource); },
     waiting: function (event) { return metricText(metricsOf(event).waitingMinutes); },
     billType: function (event) { return metricsOf(event).weighbillType || '卸货磅单'; },
     billStatus: function (event) { return weighbillStatusText(metricsOf(event)); },
-    uploading: function (event) {
-      var metrics = metricsOf(event);
-      if (metrics.uploading === true || metrics.weighbillStatus === '上传处理中') return '正在上传';
-      return '否';
-    },
     currentSoc: function (event) {
       var metrics = metricsOf(event);
       if (metrics.telemetryValid === false) return { text: '车辆SOC数据已过期', tone: 'danger' };
@@ -1212,7 +1319,7 @@
       if (metrics.telemetryValid === false && metrics.triggerSoc == null) return { text: value + '%（过期读数，不能当实时电量）', tone: 'danger' };
       return value + '%';
     },
-    socLevel: function (event) { return displayLevel(event) || '—'; },
+    socLevel: function (event) { return levelLabel(displayLevel(event)); },
     charging: function (event) { return chargingText(metricsOf(event)); },
     socSource: function (event) {
       var source = metricsOf(event).socSource;
@@ -1234,11 +1341,6 @@
     cycleId: function (event) { return event.drivingCycleId || metricsOf(event).drivingCycleId || '—'; },
     fatigueUpdatedAt: function (event) { return metricsOf(event).lastTelemetryAt || '—'; }
   };
-  var OVERVIEW_FIELDS = [
-    { key: 'alertTime', label: '告警时间' },
-    { key: 'recoverTime', label: '恢复时间' },
-    { key: 'ruleName', label: '命中规则' }
-  ];
   function vehicleObject(orgKey, orgLabel) {
     return [
       { key: 'plate', label: '车牌号' },
@@ -1252,35 +1354,30 @@
   }
   var ALERT_TYPE_CONFIG = {
     TRANSPORT_PARKING: {
-      objectSchema: vehicleObject('parkingOrg', '所属部门'),
+      objectSchema: [
+        { key: 'plate', label: '车牌号' },
+        { key: 'driver', label: '司机' },
+        { key: 'parkingOrg', label: '所属部门' },
+        { key: 'task', label: '关联任务单' },
+        { key: 'taskStatus', label: '当前任务状态' },
+        { key: 'route', label: '线路' },
+        { key: 'cargo', label: '货物' }
+      ],
       detailSchema: [
         { key: 'parkingStartedAt', label: '停车开始时间' },
-        { key: 'parkingDuration', label: '当前持续停车时长' },
         { key: 'place', label: '停车位置' },
         { key: 'coordinates', label: '经纬度' },
         { key: 'parkingSpeed', label: '当前速度' },
-        { key: 'vehicleRunStatus', label: '当前车辆状态' },
-        { key: 'parkingOrg', label: '所属部门' },
-        { key: 'task', label: '关联任务单' },
-        { key: 'taskStatus', label: '当前任务状态' }
+        { key: 'vehicleRunStatus', label: '当前车辆状态' }
       ],
       headline: function (event) { return { label: '停车时长', value: parkingDurationText(event) }; },
-      buildTriggerReason: function (event) {
-        var general = generalLevelConfig(event);
-        var current = currentLevelConfig(event);
-        var generalMinutes = general && general.threshold != null ? general.threshold : 30;
-        var lines = ['车辆连续停车 ' + parkingDurationText(event) + '，当前规则一般预警阈值为 ' + generalMinutes + ' 分钟，已满足停车预警条件。'];
-        if (current && displayLevel(event) !== '一般' && current.threshold != null) {
-          lines.push('当前等级为' + displayLevel(event) + '，对应阈值为 ' + current.threshold + ' 分钟。');
-        }
-        return lines;
-      },
-      timelineTitle: function (log, event) {
-        if (log.action === 'STILL_STARTED') return '开始持续停车' + (event.location ? ' · ' + event.location : '');
+      timelineTitle: function (log) {
+        if (log.action === 'STILL_STARTED') return '开始持续停车';
+        if (log.action === 'STILL_CONFIRMED') return '持续静止满5分钟，确认进入停车周期';
         if (log.action === 'TRIGGERED' || log.action === 'ALERT_CREATED') return '连续停车达到阈值，触发' + (log.toLevel || '一般') + '预警';
-        if (log.action === 'LEVEL_UPGRADE' || log.action === 'LEVEL_UPGRADED') return '升级' + (log.toLevel || '');
+        if (log.action === 'LEVEL_UPGRADE' || log.action === 'LEVEL_UPGRADED') return '升级' + (log.toLevel || '') + '预警';
+        if (log.action === 'RECOVER_CANDIDATE') return '车速回升，进入恢复确认';
         if (log.action === 'RECOVERED') return '车辆恢复行驶，事件恢复';
-        if (isHandleLog(log)) return dispatchTimelineTitle(log);
         return log.remark || '停车状态更新';
       }
     },
@@ -1346,7 +1443,7 @@
           if (levels.indexOf(level) < 0) levels.push(level);
         });
         if (levels.length < 2) return '';
-        return '同一条超速事件内升级：' + levels.join(' → ');
+        return '同一条超速事件内升级：' + levels.map(levelLabel).join(' → ');
       },
       timelineTitle: function (log) {
         if (log.action === 'SPEED_START') return '开始连续超速';
@@ -1358,34 +1455,18 @@
       }
     },
     UNLOAD_WEIGHBILL_MISSING: {
-      objectSchema: vehicleObject('projectOrg', '所属项目'),
+      objectSchema: vehicleObject('parkingOrg', '所属部门'),
       detailSchema: [
-        { key: 'task', label: '任务单号' },
-        { key: 'unloadNode', label: '卸货节点' },
         { key: 'unloadPlace', label: '卸货地' },
         { key: 'arrivedAt', label: '到达卸货地时间' },
         { key: 'departedAt', label: '离开卸货地时间' },
-        { key: 'departSource', label: '离场时间来源' },
         { key: 'waiting', label: '已超时时长' },
         { key: 'billType', label: '磅单类型' },
         { key: 'billStatus', label: '当前磅单状态' },
-        { key: 'uploading', label: '是否正在上传' },
         { key: 'driver', label: '当前司机' },
         { key: 'plate', label: '当前车辆' }
       ],
       headline: function (event) { return { label: '已超时', value: metricText(metricsOf(event).waitingMinutes) }; },
-      buildTriggerReason: function (event) {
-        var metrics = metricsOf(event);
-        var place = metrics.unloadLocation || event.location || '卸货地';
-        var left = clockText(metrics.unloadDepartedAt);
-        var current = currentLevelConfig(event);
-        var threshold = current && current.threshold != null ? current.threshold : 15;
-        var uploaded = metrics.weighbillUploaded === true || metrics.weighbillStatus === '已上传';
-        var lead = uploaded
-          ? '车辆已于 ' + left + ' 有效离开【' + place + '】。卸货磅单现已上传成功，本条预警结束。'
-          : '车辆已于 ' + left + ' 有效离开【' + place + '】，当前磅单仍未上传成功，已超过规则规定的 ' + threshold + ' 分钟，因此产生未上传磅单预警。';
-        return [lead, '离场来源：' + departLabel(metrics.departTimeSource)];
-      },
       timelineTitle: function (log, event) {
         var source = metricsOf(event).departTimeSource;
         if (log.action === 'ARRIVED_UNLOAD') return '到达卸货地';
@@ -1398,9 +1479,7 @@
         if (log.action === 'TRIGGERED' || log.action === 'ALERT_CREATED') return joinSentence(log.remark, '触发' + (log.toLevel || '一般') + '预警');
         if (log.action === 'LEVEL_UPGRADE' || log.action === 'LEVEL_UPGRADED') return joinSentence(log.remark, '升级' + (log.toLevel || ''));
         if (log.action === 'UPLOADED') return '司机上传磅单成功';
-        if (log.action === 'NO_WEIGHBILL') return '确认无需磅单，事件恢复';
         if (log.action === 'RECOVERED') return '事件自动恢复';
-        if (isHandleLog(log)) return dispatchTimelineTitle(log);
         return log.remark || '磅单状态更新';
       }
     },
@@ -1555,7 +1634,16 @@
   }
   function overviewHtml(type, event) {
     var metric = summaryMetric(type, event);
-    return sectionHtml('告警概览', '<div class="ac-detail-summary"><span>' + levelBadge(displayLevel(event)) + '<small>告警等级</small></span><span>' + eventBadge(type, event) + '<small>事件状态</small></span><span>' + handleBadge(event.handleStatus) + '<small>处理状态</small></span><span><b>' + esc(metric.value) + '</b><small>' + esc(metric.label) + '</small></span></div><dl class="ac-kv ac-overview-meta">' + schemaRows(OVERVIEW_FIELDS, event) + '</dl>');
+    var fields = [
+      { key: 'alertLevel', label: '告警等级' },
+      { key: 'eventState', label: '事件状态' }
+    ];
+    if (!type.readOnly) fields.push({ key: 'handleState', label: '处理状态' });
+    fields.push({ key: 'headlineMetric', label: metric.label });
+    fields.push({ key: 'alertTime', label: '告警时间' });
+    if (event.eventStatus === '已恢复' && event.recoveredAt) fields.push({ key: 'recoverTime', label: '恢复时间' });
+    if (type.code !== 'TRANSPORT_PARKING' && type.code !== 'UNLOAD_WEIGHBILL_MISSING') fields.push({ key: 'ruleName', label: '命中规则' });
+    return sectionHtml('告警概览', '<dl class="ac-kv">' + schemaRows(fields, event) + '</dl>');
   }
   function objectSection(config, event) {
     var kicker = config.objectKicker ? '<p class="ac-object-kicker">' + esc(config.objectKicker) + '</p>' : '';
@@ -1567,20 +1655,22 @@
     var paragraphs = Array.isArray(built) ? built : (built.paragraphs || []);
     var tone = Array.isArray(built) ? '' : (built.tone || '');
     var html = '<div class="ac-trigger' + (tone ? ' is-' + tone : '') + '">' + paragraphs.filter(Boolean).map(function (text, index) {
-      return '<p class="' + (index ? 'ac-trigger-note' : 'ac-trigger-lead') + '">' + esc(text) + '</p>';
+      return '<p class="' + (index ? 'ac-trigger-note' : 'ac-trigger-lead') + '">' + esc(levelText(text)) + '</p>';
     }).join('') + '</div>';
     return sectionHtml('触发依据', html);
   }
   function buildAlertTimeline(event, config) {
     return (store().getLogs(event.id) || []).slice().sort(function (a, b) {
       return String(a.operatedAt || '').localeCompare(String(b.operatedAt || ''));
+    }).filter(function (log) {
+      return !typeByCode(event.ruleCode || event.alertType).readOnly || (!isHandleLog(log) && log.action !== 'FOLLOW_UP_DUE');
     }).map(function (log) {
       var title = config.timelineTitle ? config.timelineTitle(log, event) : (log.remark || '状态更新');
       return {
         at: log.operatedAt,
         action: log.action,
-        title: title,
-        detail: timelineDetail(log, title),
+        title: levelText(title),
+        detail: levelText(timelineDetail(log, title)),
         operator: log.operator && log.operator !== '系统' ? log.operator : ''
       };
     });
@@ -1594,14 +1684,13 @@
         + (item.detail || item.operator ? '<p>' + esc(item.detail || '') + (item.operator ? '<span> · ' + esc(item.operator) + '</span>' : '') + '</p>' : '')
         + '</div></li>';
     }).join('') || '<li><i></i><div><b>暂无时间线</b></div></li>';
-    return sectionHtml('事件时间线', (lead ? '<p class="ac-timeline-lead">' + esc(lead) + '</p>' : '') + '<ol class="ac-timeline">' + html + '</ol>');
+    return sectionHtml('事件时间线', (lead ? '<p class="ac-timeline-lead">' + esc(levelText(lead)) + '</p>' : '') + '<ol class="ac-timeline">' + html + '</ol>');
   }
   function handleRecordsHtml(event) {
     var records = event.handleRecords || [];
     if (!records.length) return '<p class="ac-mock-hint">暂无处理记录。</p>';
     return '<ol class="ac-handle-records">' + records.map(function (record) {
       return '<li><time>' + esc(record.handleTime) + '</time><b>' + esc(record.handler || '—') + ' · ' + esc(record.handleType) + '</b>'
-        + (record.parkingReason ? '<p>停车原因：' + esc(record.parkingReason) + '</p>' : '')
         + (record.falseAlarmReason ? '<p>原因：' + esc(record.falseAlarmReason) + '</p>' : '')
         + '<p>' + esc(record.handleResult || '') + '</p></li>';
     }).join('') + '</ol>';
@@ -1611,19 +1700,21 @@
     if (!event) return;
     var type = typeByCode(event.ruleCode || event.alertType);
     var config = ALERT_TYPE_CONFIG[type.code] || type;
-    var canHandle = event.handleStatus !== '已处理';
+    var canHandle = !type.readOnly && event.handleStatus !== '已处理';
     var view = {
       common: overviewHtml(type, event) + objectSection(config, event),
       business: buildBusinessDetail(event, config.detailSchema),
-      triggerReason: triggerSection(config, event),
-      timeline: timelineSection(event, config),
-      handlingRecords: event.handleRecords || []
+      triggerReason: config.buildTriggerReason ? triggerSection(config, event) : '',
+      timeline: timelineSection(event, config)
     };
-    var html = '<header class="ac-drawer-header"><div><small>' + esc(event.id) + '</small><h2>' + esc(type.name) + '</h2></div><button type="button" onclick="acCloseDrawer()" aria-label="关闭">×</button></header>'
+    var html = '<header class="ac-drawer-header"><div><h2>' + esc(type.name) + '</h2></div><button type="button" onclick="acCloseDrawer()" aria-label="关闭">×</button></header>'
       + '<div class="ac-drawer-body">' + view.common + view.business + view.triggerReason + view.timeline
-      + sectionHtml('处理记录', handleRecordsHtml(event))
-      + '</div><footer class="ac-drawer-footer"><button class="btn btn-default" type="button" onclick="acCloseDrawer()">关闭</button>'
-      + (canHandle ? '<button class="btn btn-primary" type="button" onclick="acHandle(\'' + esc(event.id) + '\')">处理</button>' : '') + '</footer>';
+      + (type.readOnly ? '' : sectionHtml('处理记录', handleRecordsHtml(event)))
+      + '</div>';
+    if (type.code !== 'UNLOAD_WEIGHBILL_MISSING') {
+      html += '<footer class="ac-drawer-footer"><button class="btn btn-default" type="button" onclick="acCloseDrawer()">关闭</button>'
+        + (canHandle ? '<button class="btn btn-primary" type="button" onclick="acHandle(\'' + esc(event.id) + '\')">处理</button>' : '') + '</footer>';
+    }
     mountDrawer(html, 'detail');
     drawerEventId = id;
   }
@@ -1631,15 +1722,15 @@
     var event = store() && store().getEvent(id);
     if (!event) return;
     var type = typeByCode(event.ruleCode || event.alertType);
+    if (type.readOnly) { renderDetailDrawer(id); return; }
     var config = ALERT_TYPE_CONFIG[type.code] || type;
     var metric = summaryMetric(type, event);
     var reasons = type.falseAlarmReasons || [];
     var context = config.handleContext ? config.handleContext(event) : ((event.plate || '—') + ' · ' + (event.driverName || '—') + ' · ' + (event.taskId || '无任务单'));
-    var html = '<header class="ac-drawer-header"><div><small>' + esc(event.id) + '</small><h2>处理告警</h2></div><button type="button" onclick="acCloseDrawer()" aria-label="关闭">×</button></header>'
+    var html = '<header class="ac-drawer-header"><div><h2>处理告警</h2></div><button type="button" onclick="acCloseDrawer()" aria-label="关闭">×</button></header>'
       + '<div class="ac-drawer-body"><div class="ac-handle-context"><strong>' + esc(type.name) + '</strong><span>' + esc(context) + '</span><p>' + esc(metric.label + ' ' + metric.value) + '</p></div>'
       + '<section class="detail-section"><div class="detail-section-title">处理信息</div><div class="form-grid">'
       + '<div class="form-item"><label class="form-label">处理方式 <span class="req">*</span></label><select class="form-control-text" id="acHandlingType" onchange="acHandleTypeChange()"><option value="">请选择</option>' + (type.handleOptions || []).map(function (item) { return option(item, item, ''); }).join('') + '</select></div>'
-      + (type.parkingReasons ? '<div class="form-item"><label class="form-label">停车原因 <span class="req">*</span></label><select class="form-control-text" id="acParkingReason"><option value="">请选择</option>' + type.parkingReasons.map(function (item) { return option(item, item, ''); }).join('') + '</select></div>' : '')
       + '<div class="form-item" id="acFalseAlarmBox" hidden><label class="form-label" id="acReasonLabel">误报原因 <span class="req">*</span></label><select class="form-control-text" id="acFalseAlarmReason"><option value="">请选择</option>' + reasons.map(function (item) { return option(item, item, ''); }).join('') + '</select></div>'
       + '<div class="form-item"><label class="form-label">处理说明 <span class="req">*</span></label><textarea class="form-control-text ac-result" id="acHandlingResult" maxlength="300" placeholder="请输入现场情况、已采取措施及后续安排"></textarea></div>'
       + '<div class="ac-handler-meta"><span>处理人：' + esc(store().operator) + '</span><span>提交时记录处理时间</span></div></div></section>'
@@ -1666,11 +1757,19 @@
   }
   function readFilters() {
     var filters = currentState().listFilters;
-    ['Project', 'Level', 'HandleStatus', 'Keyword', 'Extra', 'Start', 'End', 'FenceType'].forEach(function (suffix) {
+    ['EventStatus', 'Project', 'Plate', 'DriverName', 'TaskId', 'Level', 'HandleStatus', 'Extra', 'ParkingDurationOp', 'ParkingDurationMinutes', 'Start', 'End', 'FenceType'].forEach(function (suffix) {
       var el = document.getElementById('ac' + suffix);
       if (!el) return;
       filters[suffix.charAt(0).toLowerCase() + suffix.slice(1)] = String(el.value || '').trim();
     });
+    if (currentType().code === 'TRANSPORT_PARKING' || currentType().code === 'UNLOAD_WEIGHBILL_MISSING') {
+      if (filters.start) filters.start = datetimeLocalValue(filters.start);
+      if (filters.end) filters.end = datetimeLocalValue(filters.end);
+    }
+    if (currentType().code === 'TRANSPORT_PARKING') {
+      filters.extra = '';
+      if (!filters.parkingDurationOp) filters.parkingDurationOp = '>=';
+    }
   }
   function rerender() {
     var main = document.querySelector('.main');
@@ -1685,11 +1784,11 @@
     var host = document.createElement('div');
     host.id = 'acRuleModalHost';
     host.className = 'modal-overlay show ac-rule-modal-host';
-    host.innerHTML = modalShell((mode === 'create' ? '新增' : '编辑') + type.name + '规则', rule.name, modalBody(rule));
+    host.innerHTML = modalShell((mode === 'create' ? '新增' : '编辑') + type.name + '规则', rule.name, modalBody(rule), ruleModalExtraClass(rule.code));
     host.addEventListener('click', function (event) { if (event.target === host) window.acCloseRuleModal(); });
     document.body.appendChild(host);
     state.ruleModal.baseline = formFingerprint(rule);
-    if (rule.code === 'TRANSPORT_PARKING' && window.acParkingCount) window.acParkingCount();
+    if (isVehicleOrgCode(rule.code) && window.acParkingCount) window.acParkingCount();
     if (isAreaCode(rule.code) && window.acAreaStayFenceMode) window.acAreaStayFenceMode();
   }
   function closeRuleModal(force) {
@@ -1826,6 +1925,8 @@
     rerender();
   };
   window.acApply = function () {
+    var parkingMin = document.getElementById('acParkingDurationMinutes');
+    if (parkingMin && !parkingMin.checkValidity()) { parkingMin.reportValidity(); return; }
     var state = currentState();
     readFilters();
     state.activeMetric = '';
@@ -1835,13 +1936,6 @@
   window.acReset = function () {
     var state = currentState();
     state.listFilters = blankFilters();
-    state.activeMetric = '';
-    rerender();
-  };
-  window.acStatus = function (status) {
-    var state = currentState();
-    state.listFilters.eventStatus = status;
-    state.listFilters.metric = '';
     state.activeMetric = '';
     rerender();
   };
@@ -1879,34 +1973,30 @@
     var select = document.getElementById('acFalseAlarmReason');
     var chosen = ((document.getElementById('acHandlingType') || {}).value || '').trim();
     var type = currentType();
-    var noBill = chosen === '确认无需磅单';
-    var needs = chosen === '误报' || chosen === '确认误报' || noBill;
+    var needs = chosen === '误报' || chosen === '确认误报';
     if (box) box.hidden = !needs;
-    if (label) label.innerHTML = (noBill ? '无需磅单原因' : '误报原因') + ' <span class="req">*</span>';
+    if (label) label.innerHTML = '误报原因 <span class="req">*</span>';
     if (select) {
-      var reasons = noBill ? (type.noBillReasons || []) : (type.falseAlarmReasons || []);
+      var reasons = type.falseAlarmReasons || [];
       select.innerHTML = '<option value="">请选择</option>' + reasons.map(function (item) { return option(item, item, ''); }).join('');
     }
   };
   window.acSubmitHandle = function (markDone) {
+    if (currentType().readOnly) return;
     var chosen = ((document.getElementById('acHandlingType') || {}).value || '').trim();
     var result = ((document.getElementById('acHandlingResult') || {}).value || '').trim();
-    var parkingReason = ((document.getElementById('acParkingReason') || {}).value || '').trim();
     var falseReason = ((document.getElementById('acFalseAlarmReason') || {}).value || '').trim();
-    var closing = chosen === '误报' || chosen === '确认误报' || chosen === '无需处理' || chosen === '确认无需磅单';
+    var closing = chosen === '误报' || chosen === '确认误报' || chosen === '无需处理';
     if (!chosen) { toast('请选择处理方式'); return; }
-    if (document.getElementById('acParkingReason') && !parkingReason) { toast('请选择停车原因'); return; }
-    if ((chosen === '误报' || chosen === '确认误报' || chosen === '确认无需磅单') && !falseReason) { toast(chosen === '确认无需磅单' ? '请选择无需磅单原因' : '请选择误报原因'); return; }
+    if ((chosen === '误报' || chosen === '确认误报') && !falseReason) { toast('请选择误报原因'); return; }
     if (!result) { toast('请填写处理说明'); return; }
     var extra = { markDone: markDone === true || closing };
-    if (parkingReason) extra.parkingReason = parkingReason;
     if (falseReason) extra.falseAlarmReason = falseReason;
     var saved = store().handle(drawerEventId, chosen, result, extra);
     if (saved && saved.error) { toast(saved.error); return; }
     closeDrawer();
     rerender();
-    if (chosen === '确认无需磅单') toast('已确认无需磅单，告警已恢复');
-    else if (extra.markDone) toast('已标记已处理');
+    if (extra.markDone) toast('已标记已处理');
     else toast('已提交处理');
   };
   window.acOpenTask = function (id) {
@@ -1924,19 +2014,44 @@
     openRuleModal('edit', rule);
   };
   window.acCloseRuleModal = function () { closeRuleModal(false); };
+  function openRuleDeleteConfirm(rule) {
+    closeRuleModal(true);
+    var host = document.createElement('div');
+    host.id = 'acRuleModalHost';
+    host.className = 'modal-overlay show ac-rule-modal-host';
+    host.innerHTML = '<div class="modal ac-confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="acDeleteTitle">'
+      + '<div class="modal-header"><div class="modal-title" id="acDeleteTitle">删除超时规则</div><button class="modal-close" type="button" onclick="acCloseRuleModal()" aria-label="关闭">×</button></div>'
+      + '<div class="modal-body"><div class="confirm-body">确定删除超时规则 <span class="warn">' + esc(rule.name || '未命名规则') + '</span> 吗？</div>'
+      + '<div class="confirm-detail">删除后该规则不再用于新的停车预警，已产生告警不受影响。</div></div>'
+      + '<div class="modal-footer"><button class="btn btn-default" type="button" onclick="acCloseRuleModal()">取消</button>'
+      + '<button class="btn btn-danger" type="button" onclick="acConfirmRemoveRule(\'' + esc(rule.id) + '\')">确认删除</button></div></div>';
+    host.addEventListener('click', function (event) { if (event.target === host) window.acCloseRuleModal(); });
+    document.body.appendChild(host);
+  }
   window.acRemoveRule = function (id) {
     var rule = store().getRule(id);
     if (!rule) return;
+    if (rule.code === 'TRANSPORT_PARKING') {
+      openRuleDeleteConfirm(rule);
+      return;
+    }
     if (!window.confirm('删除后该规则不再用于新的' + typeByCode(rule.code).name + '，已产生告警不受影响。确定删除？')) return;
+    finishRemoveRule(id);
+  };
+  window.acConfirmRemoveRule = function (id) {
+    closeRuleModal(true);
+    finishRemoveRule(id);
+  };
+  function finishRemoveRule(id) {
     var result = store().removeRule(id);
     if (result && result.error) { toast(result.error); return; }
     rerender();
     toast('规则已删除');
-  };
+  }
   window.acRuleApply = function () {
     var filters = currentState().ruleFilters;
     filters.name = ((document.getElementById('acRuleName') || {}).value || '').trim();
-    filters.scopeType = (document.getElementById('acRuleScope') || {}).value || '';
+    filters.scopeType = '';
     filters.status = (document.getElementById('acRuleStatus') || {}).value || '';
     rerender();
   };
@@ -1946,6 +2061,11 @@
     var period = document.getElementById('wrMonitorPeriod');
     if (row && period) row.hidden = period.value !== '自定义';
   };
+  window.acParkingSpeedTip = function () {
+    var tip = document.getElementById('wrStillSpeedTip');
+    var input = document.getElementById('wrStillSpeed');
+    if (tip) tip.textContent = parkingSpeedPresetTip(input && input.value);
+  };
   window.acScopeChange = function () {
     var scope = document.getElementById('wrScope');
     var orgBox = document.getElementById('wrOrgBox');
@@ -1953,7 +2073,7 @@
     var speedProjects = document.getElementById('wrSpeedProjects');
     var lateProjects = document.getElementById('wrLateProjects');
     if (orgBox || vehicleBox) {
-      var mode = ((document.querySelector(HOST + ' input[name="wrScopeMode"]:checked') || {}).value) || '组织部门';
+      var mode = ((document.querySelector(HOST + ' input[name="wrScopeMode"]:checked') || {}).value) || '自定义车辆';
       if (orgBox) orgBox.hidden = mode !== '组织部门';
       if (vehicleBox) vehicleBox.hidden = mode !== '自定义车辆';
     }

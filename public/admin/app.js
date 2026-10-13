@@ -1,5 +1,14 @@
 /* ===================== SCRIPT BLOCK 1 (lines 656-737) ===================== */
 // ========== Page Router ==========
+var TEMP_HIDDEN_ALERT_PAGES = {
+  'alert-parking-area': true,
+  'alert-overspeed': true,
+  'alert-soc': true,
+  'alert-fatigue': true
+};
+function visibleAlertPage(page) {
+  return TEMP_HIDDEN_ALERT_PAGES[page] ? 'alert-parking' : page;
+}
 var app = {
   currentPage: 'fence-list',
   pages: {},
@@ -13,6 +22,7 @@ var app = {
     if (page === 'order-fare-lock') page = 'order-list';
     if (page === 'alert-records' || page === 'alert-center') page = 'alert-parking';
     if (page === 'warning-rule-management') { window.__acPreferTab = 'rules'; page = 'alert-parking'; }
+    page = visibleAlertPage(page);
     if (page === 'secondary-fence') page = 'fence-list';
     if (page === 'area-billing-ops') {
       window.__weighDeskTab = 'ops';
@@ -73,6 +83,10 @@ var app = {
 
   init: function() {
     var hashPage = window.location.hash.replace('#', '');
+    if (TEMP_HIDDEN_ALERT_PAGES[hashPage]) {
+      hashPage = visibleAlertPage(hashPage);
+      window.history.replaceState(null, '', '#' + hashPage);
+    }
     if (hashPage === 'order-fare-lock') hashPage = 'order-list';
     if (hashPage === 'alert-records' || hashPage === 'alert-center') hashPage = 'alert-parking';
     if (hashPage === 'warning-rule-management') { window.__acPreferTab = 'rules'; hashPage = 'alert-parking'; }
@@ -106,7 +120,8 @@ var app = {
     }
     window.addEventListener('hashchange', function() {
       var requested = window.location.hash.replace('#', '');
-      var page = requested;
+      var page = visibleAlertPage(requested);
+      if (page !== requested) window.history.replaceState(null, '', '#' + page);
       if (page === 'order-fare-lock') page = 'order-list';
       if (page === 'alert-records' || page === 'alert-center') page = 'alert-parking';
       if (page === 'warning-rule-management') { window.__acPreferTab = 'rules'; page = 'alert-parking'; }

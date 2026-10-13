@@ -1,5 +1,6 @@
 /* 告警中心：沿用后台共享表格、筛选、按钮与企业信任视觉。 */
-.ac-page { min-width: 1120px; }
+.nav-group[data-group="alert-center"] .nav-item[hidden] { display: none; }
+.ac-page { min-width: 0; }
 .ac-section-tabs { margin-bottom: 16px; }
 .ac-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
 .ac-metrics-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -14,15 +15,20 @@
 .ac-metric-orange { --metric-color: #ea580c; }
 .ac-metric-amber { --metric-color: #d97706; }
 .ac-metric-blue { --metric-color: #2563eb; }
-.ac-status-switch { display: inline-flex; align-items: center; gap: 4px; margin-bottom: 12px; padding: 4px; border: 1px solid var(--c-border); border-radius: 10px; background: #fff; box-shadow: var(--sh-sm); }
-.ac-status-switch button { display: inline-flex; min-height: 34px; align-items: center; gap: 8px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; color: var(--c-text-2); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; transition: color .2s, background .2s, box-shadow .2s; }
-.ac-status-switch button:hover { color: var(--c-primary); background: #f8fafc; }
-.ac-status-switch button.is-active { background: linear-gradient(135deg, #4f46e5, #7c3aed); color: #fff; box-shadow: 0 4px 12px rgba(79, 70, 229, .22); }
-.ac-status-switch button b { display: grid; min-width: 20px; height: 20px; place-items: center; padding: 0 6px; border-radius: 999px; background: #eef2ff; color: #4f46e5; font-size: 10.5px; }
-.ac-status-switch button.is-active b { background: rgba(255, 255, 255, .2); color: #fff; }
 .ac-filter { overflow: visible; }
 .ac-filter .filter-row { grid-template-columns: repeat(4, minmax(170px, 1fr)); overflow: visible; }
 .ac-filter .filter-item { overflow: visible; }
+.ac-list-filter { padding: 12px 16px 4px; }
+.ac-list-filter .filter-row { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px 12px; margin-bottom: 8px; }
+.ac-list-filter .filter-item { min-width: 0; gap: 3px; }
+.ac-list-filter .filter-actions { padding-top: 6px; padding-bottom: 8px; }
+.ac-duration-combo { display: flex; align-items: center; gap: 8px; min-width: 0; height: 32px; }
+.ac-duration-combo select.filter-control { flex: 1 1 auto; width: auto; min-width: 0; padding-right: 26px; }
+.ac-duration-combo input.filter-control { flex: 0 0 64px; width: 64px; min-width: 56px; max-width: 72px; padding: 0 6px; text-align: center; appearance: textfield; -moz-appearance: textfield; }
+.ac-duration-combo input.filter-control::-webkit-outer-spin-button,
+.ac-duration-combo input.filter-control::-webkit-inner-spin-button { appearance: none; margin: 0; }
+.ac-duration-unit { flex: none; color: var(--c-text-2); font-size: 13px; line-height: 32px; white-space: nowrap; }
+.ac-list-filter input[type="datetime-local"].filter-control { font-size: 12px; padding: 0 4px; min-width: 0; color-scheme: light; }
 .ac-org-filter { position: relative; z-index: 1; }
 .ac-org-filter.is-open { z-index: 24; }
 .ac-org-filter .cb-entity-trigger { height: 32px; }
@@ -53,57 +59,53 @@
 .ac-drawer-host { position: fixed; inset: 0; z-index: 1200; pointer-events: none; }
 .ac-drawer-host.is-open { pointer-events: auto; }
 .ac-drawer-mask { position: absolute; inset: 0; width: 100%; border: 0; background: rgba(15, 23, 42, .36); backdrop-filter: blur(2px); cursor: default; }
-.ac-drawer { position: absolute; top: 0; right: 0; bottom: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; width: min(660px, calc(100vw - 48px)); overflow: hidden; background: #f8fafc; box-shadow: -16px 0 38px rgba(15, 23, 42, .2); animation: ac-drawer-in .22s ease-out both; }
+.ac-drawer { position: absolute; top: 0; right: 0; bottom: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; width: min(560px, calc(100vw - 48px)); overflow: hidden; background: #f8fafc; box-shadow: -16px 0 38px rgba(15, 23, 42, .2); animation: ac-drawer-in .22s ease-out both; }
+.ac-drawer [hidden] { display: none !important; }
 @keyframes ac-drawer-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
-.ac-drawer-header { display: flex; align-items: center; justify-content: space-between; min-height: 76px; padding: 16px 22px; border-bottom: 1px solid var(--c-border); background: #fff; }
-.ac-drawer-header small { display: block; margin-bottom: 4px; color: var(--c-text-3); font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.ac-drawer-header h2 { margin: 0; color: var(--c-text-1); font-size: 19px; }
-.ac-drawer-header > button { display: grid; width: 36px; height: 36px; place-items: center; border: 0; border-radius: 8px; background: transparent; color: var(--c-text-2); font-size: 25px; cursor: pointer; }
+.ac-drawer-header { display: flex; align-items: center; justify-content: space-between; min-height: 48px; padding: 8px 16px; border-bottom: 1px solid var(--c-border); background: #fff; }
+.ac-drawer-header h2 { margin: 0; color: var(--c-text-1); font-size: 16px; }
+.ac-drawer-header > button { display: grid; width: 32px; height: 32px; place-items: center; border: 0; border-radius: 8px; background: transparent; color: var(--c-text-2); font-size: 22px; cursor: pointer; }
 .ac-drawer-header > button:hover { background: #f1f5f9; color: var(--c-text-1); }
-.ac-drawer-body { overflow-y: auto; padding: 18px 22px 28px; }
-.ac-drawer-footer { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 22px; border-top: 1px solid var(--c-border); background: #fff; box-shadow: 0 -6px 18px rgba(15, 23, 42, .04); }
-.ac-drawer .detail-section { margin-bottom: 14px; padding: 16px; border: 1px solid var(--c-border); border-radius: 12px; background: #fff; box-shadow: 0 4px 18px -12px rgba(37, 99, 235, .2); }
+.ac-drawer-body { overflow-y: auto; padding: 12px 16px 16px; }
+.ac-drawer-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--c-border); background: #fff; box-shadow: 0 -6px 18px rgba(15, 23, 42, .04); }
+.ac-drawer .detail-section { margin-bottom: 8px; padding: 12px 14px; border: 1px solid var(--c-border); border-radius: 12px; background: #fff; box-shadow: 0 4px 18px -12px rgba(37, 99, 235, .2); }
 .ac-drawer .detail-section:last-child { margin-bottom: 0; }
-.ac-drawer .detail-section-title { margin-bottom: 14px; padding-left: 9px; border-left: 3px solid var(--c-primary); color: var(--c-text-1); font-size: 14px; font-weight: 700; }
-.ac-detail-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 0; }
-.ac-overview-meta { margin-top: 14px; }
-.ac-object-kicker, .ac-timeline-lead { margin: 0 0 12px; color: var(--c-text-2); font-size: 12.5px; line-height: 1.6; }
-.ac-kv > div.is-emphasis dd { color: var(--c-text-1); font-size: 16px; font-weight: 700; }
+.ac-drawer .detail-section-title { margin-bottom: 8px; padding-left: 8px; border-left: 3px solid var(--c-primary); color: var(--c-text-1); font-size: 13px; font-weight: 700; }
+.ac-object-kicker, .ac-timeline-lead { margin: 0 0 8px; color: var(--c-text-2); font-size: 12px; line-height: 1.5; }
+.ac-kv > div.is-emphasis dd { color: var(--c-text-1); font-size: 14px; font-weight: 700; }
 .ac-kv > div.is-danger dd { color: #b91c1c; font-weight: 700; }
-.ac-trigger { display: grid; gap: 8px; }
-.ac-trigger p { margin: 0; color: var(--c-text-1); font-size: 13.5px; line-height: 1.75; }
+.ac-trigger { display: grid; gap: 4px; }
+.ac-trigger p { margin: 0; color: var(--c-text-1); font-size: 13px; line-height: 1.55; }
 .ac-trigger-note { color: var(--c-text-2); }
-.ac-trigger.is-danger { padding: 12px 14px; border-radius: 10px; background: #fef2f2; }
+.ac-trigger.is-danger { padding: 8px 10px; border-radius: 8px; background: #fef2f2; }
 .ac-trigger.is-danger .ac-trigger-lead { color: #b91c1c; font-weight: 700; }
-.ac-detail-summary.is-parking { grid-template-columns: repeat(3, 1fr); }
-.ac-detail-summary > span { display: grid; min-height: 68px; place-items: center; align-content: center; gap: 7px; border: 1px solid var(--c-border); border-radius: 10px; background: #fff; }
-.ac-detail-summary > span > b { color: var(--c-text-1); font-size: 14px; }
-.ac-detail-summary small { color: var(--c-text-3); font-size: 10.5px; }
-.ac-kv { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 20px; margin: 0; }
+.ac-kv { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; margin: 0; }
 .ac-kv > div { min-width: 0; }
-.ac-kv dt { margin-bottom: 5px; color: var(--c-text-3); font-size: 11.5px; }
-.ac-kv dd { margin: 0; overflow-wrap: anywhere; color: var(--c-text-1); font-size: 13px; line-height: 1.55; }
+.ac-kv dt { margin-bottom: 2px; color: var(--c-text-3); font-size: 11px; }
+.ac-kv dd { margin: 0; overflow-wrap: anywhere; color: var(--c-text-1); font-size: 13px; line-height: 1.45; }
 .ac-facts { display: grid; gap: 7px; margin-top: 16px; padding: 12px; border-radius: 9px; background: #f8fafc; }
 .ac-facts b { color: var(--c-text-2); font-size: 12px; }
 .ac-facts span { position: relative; padding-left: 13px; color: var(--c-text-2); font-size: 12px; }
 .ac-facts span::before { position: absolute; top: 6px; left: 0; width: 5px; height: 5px; border-radius: 50%; background: #94a3b8; content: ""; }
 .ac-timeline { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
-.ac-timeline li { position: relative; display: grid; grid-template-columns: 14px 1fr; gap: 10px; min-height: 70px; }
+.ac-timeline li { position: relative; display: grid; grid-template-columns: 14px 1fr; gap: 8px; min-height: 44px; }
 .ac-timeline li:not(:last-child)::before { position: absolute; top: 14px; bottom: -2px; left: 5px; width: 1px; background: #cbd5e1; content: ""; }
 .ac-timeline li > i { position: relative; z-index: 1; width: 11px; height: 11px; margin-top: 3px; border: 2px solid #fff; border-radius: 50%; background: var(--c-primary); box-shadow: 0 0 0 2px #bfdbfe; }
 .ac-timeline li.is-level_upgraded > i { background: #dc2626; box-shadow: 0 0 0 2px #fecaca; }
 .ac-timeline li.is-level_downgraded > i { background: #f59e0b; box-shadow: 0 0 0 2px #fde68a; }
 .ac-timeline li.is-recovered > i, .ac-timeline li.is-handled > i { background: #10b981; box-shadow: 0 0 0 2px #a7f3d0; }
-.ac-timeline time { display: block; color: var(--c-text-1); font-size: 13px; font-weight: 700; }
-.ac-timeline b { display: block; margin-top: 3px; color: var(--c-text-1); font-size: 13px; }
-.ac-timeline p { margin: 4px 0 0; color: var(--c-text-2); font-size: 12px; line-height: 1.5; }
+.ac-timeline time { display: block; color: var(--c-text-1); font-size: 12px; font-weight: 700; }
+.ac-timeline b { display: block; margin-top: 2px; color: var(--c-text-1); font-size: 12.5px; }
+.ac-timeline p { margin: 2px 0 0; color: var(--c-text-2); font-size: 12px; line-height: 1.45; }
 .ac-timeline p span { color: var(--c-text-3); }
-.ac-handle-context { display: grid; gap: 5px; margin-bottom: 14px; padding: 14px 16px; border-left: 3px solid #dc2626; border-radius: 0 10px 10px 0; background: #fff; box-shadow: var(--sh-sm); }
+.ac-handle-context { display: grid; gap: 4px; margin-bottom: 10px; padding: 10px 12px; border-left: 3px solid #dc2626; border-radius: 0 10px 10px 0; background: #fff; box-shadow: var(--sh-sm); }
 .ac-handle-context strong { color: var(--c-text-1); font-size: 15px; }
 .ac-handle-context span, .ac-handle-context p { margin: 0; color: var(--c-text-2); font-size: 12.5px; line-height: 1.5; }
 .ac-result { min-height: 132px; resize: vertical; }
 .ac-handler-meta { display: flex; justify-content: space-between; color: var(--c-text-3); font-size: 11.5px; }
 .ac-rule-table { min-width: 1080px; }
+.ac-parking-rule-table { min-width: 1180px; }
+.ac-confirm-modal { width: min(480px, calc(100vw - 40px)); }
 .ac-check { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; color: var(--c-text-1); font-size: 13px; }
 .ac-check-list { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 8px; }
 .ac-vehicle-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -128,6 +130,58 @@
 .ac-rule-modal .modal-footer { flex: 0 0 auto; position: sticky; bottom: 0; background: #fff; }
 .ac-rule-modal .form-section { margin: 0 0 14px; padding: 16px 18px; border: 1px solid var(--c-border); border-radius: 12px; background: #fff; }
 .ac-rule-modal .form-section:last-child { margin-bottom: 0; }
+.ac-parking-rule-modal,
+.ac-weighbill-rule-modal { width: min(860px, calc(100vw - 40px)); max-height: calc(100vh - 48px); }
+.ac-parking-rule-modal .modal-header,
+.ac-weighbill-rule-modal .modal-header { min-height: 44px; padding: 8px 16px; position: relative; }
+.ac-parking-rule-modal .modal-title,
+.ac-weighbill-rule-modal .modal-title { font-size: 15px; }
+.ac-parking-rule-modal .ac-modal-sub,
+.ac-weighbill-rule-modal .ac-modal-sub { margin-top: 2px; }
+.ac-parking-rule-modal .modal-body,
+.ac-weighbill-rule-modal .modal-body { padding: 10px 16px 12px; }
+.ac-parking-rule-modal .modal-footer,
+.ac-weighbill-rule-modal .modal-footer { min-height: 48px; padding: 8px 16px; position: relative; z-index: 2; }
+.ac-parking-rule-modal .form-section,
+.ac-weighbill-rule-modal .form-section { margin: 0 0 8px; padding: 8px 12px; border-radius: 8px; }
+.ac-parking-rule-modal .form-section-title,
+.ac-weighbill-rule-modal .form-section-title { margin-bottom: 8px; padding-bottom: 4px; }
+.ac-parking-rule-modal .form-grid,
+.ac-weighbill-rule-modal .form-grid { gap: 8px 12px; }
+.ac-parking-rule-modal .form-grid.col-3,
+.ac-weighbill-rule-modal .form-grid.col-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.ac-parking-rule-modal .form-item,
+.ac-weighbill-rule-modal .form-item { gap: 2px; }
+.ac-parking-rule-modal .form-hint,
+.ac-weighbill-rule-modal .form-hint { margin-top: 1px; line-height: 15px; }
+.ac-parking-rule-modal .wr-level-help,
+.ac-weighbill-rule-modal .wr-level-help { margin: 0 0 6px; line-height: 18px; }
+.ac-parking-rule-modal .ac-scope-choices,
+.ac-weighbill-rule-modal .ac-scope-choices { min-height: 28px; gap: 16px; }
+.ac-parking-rule-modal .ac-scope-panel,
+.ac-weighbill-rule-modal .ac-scope-panel { margin-top: 8px; }
+.ac-parking-rule-modal .ac-scope-bar,
+.ac-weighbill-rule-modal .ac-scope-bar { margin-bottom: 6px; }
+.ac-parking-rule-modal .ac-org-tree,
+.ac-parking-rule-modal .ac-vehicle-list,
+.ac-weighbill-rule-modal .ac-org-tree,
+.ac-weighbill-rule-modal .ac-vehicle-list { max-height: 120px; margin-top: 6px; padding: 4px 8px; }
+.ac-parking-rule-modal .ac-vehicle-list,
+.ac-weighbill-rule-modal .ac-vehicle-list { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 8px; }
+.ac-parking-rule-modal .ac-vehicle-option,
+.ac-weighbill-rule-modal .ac-vehicle-option { min-width: 0; min-height: 28px; gap: 6px; overflow: hidden; white-space: nowrap; }
+.ac-parking-rule-modal .ac-vehicle-option small,
+.ac-weighbill-rule-modal .ac-vehicle-option small { overflow: hidden; text-overflow: ellipsis; }
+.ac-parking-rule-modal .ac-org-depts,
+.ac-weighbill-rule-modal .ac-org-depts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.ac-parking-rule-modal .ac-org-empty,
+.ac-weighbill-rule-modal .ac-org-empty { padding: 8px; }
+.ac-parking-rule-modal .ac-level-table th,
+.ac-parking-rule-modal .ac-level-table td,
+.ac-weighbill-rule-modal .ac-level-table th,
+.ac-weighbill-rule-modal .ac-level-table td { padding: 6px 8px; }
+.ac-parking-rule-modal .ac-rule-note,
+.ac-weighbill-rule-modal .ac-rule-note { margin: 2px 2px 0; }
 .ac-modal-sub { margin: 4px 0 0; color: var(--c-text-3); font-size: 12px; }
 .ac-scope-count { margin: 6px 0 8px; color: var(--c-text-3); font-size: 12px; }
 .ac-level-table { min-width: 0; }
@@ -152,8 +206,21 @@
 
 @media (max-width: 1280px) {
   .ac-filter .filter-row { grid-template-columns: repeat(3, minmax(170px, 1fr)); }
+  .ac-list-filter .filter-row { grid-template-columns: repeat(5, minmax(0, 1fr)); }
   .ac-metrics-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ac-table-wrap { max-height: calc(100vh - 500px); }
+}
+@media (max-width: 1100px) {
+  .ac-list-filter .filter-row { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 860px) {
+  .ac-list-filter .filter-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ac-parking-rule-modal .form-grid.col-3,
+  .ac-weighbill-rule-modal .form-grid.col-3 { grid-template-columns: 1fr 1fr; }
+  .ac-parking-rule-modal .ac-org-depts,
+  .ac-parking-rule-modal .ac-vehicle-list,
+  .ac-weighbill-rule-modal .ac-org-depts,
+  .ac-weighbill-rule-modal .ac-vehicle-list { grid-template-columns: 1fr 1fr; }
 }
 @media (prefers-reduced-motion: reduce) {
   .ac-drawer { animation: none; }
