@@ -96,11 +96,11 @@
     warningTickerIndex: 0, warningTickerHover: false,
     warningDetailTab: 'overview', warningPlate: '', warningQ: '', warningScroll: 0, warningOrigin: null,
     layers: {
-      executing: true,
+      has_task: true,
+      pending_transport: true,
+      no_task: true,
+      stopped: true,
       load: false,
-      waiting: false,
-      idle: false,
-      offline: false,
       station: false,
       fence: false,
       traffic: true
@@ -962,15 +962,15 @@
       + '<span><b id="vmOrgName">' + esc(current.short) + '</b><small id="vmOrgPath">' + esc(current.path) + '</small></span>'
       + '<i class="vm-org-caret"></i></button>'
       + '<div class="vm-org-panel" id="vmOrgPanel" role="tree"' + (vmState.orgOpen ? '' : ' hidden') + ' onclick="event.stopPropagation()">'
-      + '<header><div><b>组织与部门</b><span>选择后全屏数据同步更新</span></div><em>今日任务</em></header>'
+      + '<header><div><b>组织与部门</b><span>选择后全屏数据同步更新</span></div></header>'
       + VM_ORG_TREE.map(function (node) {
         var branch = node.level < 3 ? '<i class="vm-tree-branch">' + dcSvg('<path d="m9 18 6-6-6-6"/>') + '</i>' : '<i class="vm-tree-dot"></i>';
         var caption = node.level === 0 ? '含下级全部部门' : node.level === 1 ? '运营中心' : node.level === 2 ? '事业部汇总' : '车队执行数据';
         return '<button type="button" role="treeitem" aria-selected="' + (node.id === current.id) + '" class="vm-org-node level-' + node.level + (node.id === current.id ? ' is-on' : '') + '" data-org-id="' + node.id + '" onclick="WB.vmSelectOrg(\'' + node.id + '\')">'
-          + branch + '<span><b>' + esc(node.name) + '</b><small>' + esc(caption) + '</small></span><em>' + node.count + '</em>'
+          + branch + '<span><b>' + esc(node.name) + '</b><small>' + esc(caption) + '</small></span>'
           + dcSvg('<path d="m5 12 4 4L19 6"/>') + '</button>';
       }).join('')
-      + '<footer>当前数据范围：<b id="vmOrgFooter">' + esc(current.path) + '</b></footer></div></div>';
+      + '</div></div>';
   }
   function vmScopedTasks() {
     return vmTasks().filter(function (task) {
@@ -1442,6 +1442,56 @@
     if (status === 'stopped') return vehicle.st === 'offline';
     return true;
   }
+  var VM_VEHICLE_LAYER_TABS = [
+    { id: 'has_task', name: '运输中' },
+    { id: 'pending_transport', name: '待运输' },
+    { id: 'no_task', name: '无任务' },
+    { id: 'stopped', name: '停运' }
+  ];
+  function vmVehicleCategoryIds() {
+    return VM_VEHICLE_LAYER_TABS.map(function (tab) { return tab.id; });
+  }
+  function vmVehicleCategories() {
+    var all = vmVehicleCategoryIds();
+    if (vmState.vehicleStatus === 'custom') {
+      return all.filter(function (id) { return !!vmState.layers[id]; });
+    }
+    if (all.indexOf(vmState.vehicleStatus) >= 0) return [vmState.vehicleStatus];
+    return all.slice();
+  }
+  function vmVehicleMatchesActiveCategory(vehicle) {
+    if (vmState.vehicleStatus === 'all') return true;
+    var categories = vmVehicleCategories();
+    if (!categories.length) return false;
+    return categories.some(function (id) { return vmVehicleMatchesStatus(vehicle, id); });
+  }
+  function vmSyncVehicleLayersFromStatus() {
+    var categories = vmVehicleCategories();
+    vmVehicleCategoryIds().forEach(function (id) {
+      vmState.layers[id] = categories.indexOf(id) >= 0;
+    });
+  }
+  function vmApplyVehicleLayerToggle(id, checked) {
+    var all = vmVehicleCategoryIds();
+    var next = vmVehicleCategories().filter(function (item) { return item !== id; });
+    if (checked) next.push(id);
+    next = all.filter(function (item) { return next.indexOf(item) >= 0; });
+    all.forEach(function (item) { vmState.layers[item] = next.indexOf(item) >= 0; });
+    if (next.length === all.length) vmState.vehicleStatus = 'all';
+    else if (next.length === 1) vmState.vehicleStatus = next[0];
+    else vmState.vehicleStatus = 'custom';
+    vmSyncVehicleLayersFromStatus();
+  }
+  function vmLayerMenuKeys() {
+    return vmVehicleCategoryIds().concat(['load', 'station', 'fence', 'traffic']);
+  }
+  function vmActiveLayerCount() {
+    return vmLayerMenuKeys().filter(function (key) { return !!vmState.layers[key]; }).length;
+  }
+  function vmPlaceLayersCustom() {
+    var layers = vmState.layers;
+    return !!(layers.load || layers.station || layers.fence || !layers.traffic);
+  }
   function vmVehicleStatusName(vehicle) {
     if (vmVehicleMatchesStatus(vehicle, 'pending_transport')) return '待运输';
     if (vehicle.st === 'idle') return '无任务';
@@ -1518,7 +1568,7 @@
   function vmVehicleFiltered() {
     var query = String(vmState.q || '').toLowerCase();
     return vmVehicleBaseRows().filter(function (vehicle) {
-      if (!vmVehicleMatchesStatus(vehicle, vmState.vehicleStatus)) return false;
+      if (!vmVehicleMatchesActiveCategory(vehicle)) return false;
       if (!vmVehicleMatchesRuntime(vehicle)) return false;
       return vmVehicleMatchesQuery(vehicle, query);
     });
@@ -1544,17 +1594,12 @@
     vmState.layers.load = false;
     vmState.layers.fence = false;
   }
-  function vmApplyTaskStatusMap(status) {
-    var next = status || 'transporting';
-    var waiting = ['pending_execute', 'pending_transport'].indexOf(next) >= 0;
-    vmState.layers.executing = true;
-    vmState.layers.waiting = waiting;
+  function vmApplyTaskStatusMap() {
     vmState.layers.load = false;
-    vmState.layers.idle = false;
-    vmState.layers.offline = false;
     vmState.layers.station = false;
     vmState.layers.fence = false;
     vmState.selectedSite = '';
+    vmSyncVehicleLayersFromStatus();
   }
   function vmResetDefaultMapState() {
     vmDismissWarningWorkspace();
@@ -1571,8 +1616,9 @@
     vmState.overviewCollapsed = false;
     vmState.satellite = false;
     vmState.selectedSite = '';
-    vmApplyTaskStatusMap(vmState.taskStatus);
+    vmApplyTaskStatusMap();
     vmState.layers.traffic = true;
+    vmSyncVehicleLayersFromStatus();
     vmClearTaskSelection();
     vmOverviewCamera = null;
     vmMapNeedsOverviewFit = true;
@@ -1769,13 +1815,9 @@
       return '<span class="is-cluster">车辆聚合</span><span class="is-vehicle">单车</span><span class="is-warning">当前预警</span>';
     }
     var html = '<span class="is-run">行驶中</span><span class="is-load">装货中</span><span class="is-unload">卸货中</span><span class="is-charge">充电中</span>';
-    if (vmState.layers.waiting) {
-      var waitingLabel = selectedTask && selectedTask.monitorStatus === 'waiting'
-        ? selectedTask.nodeLabel : (vmState.taskStatus === 'pending_transport' ? '待运输' : '待执行');
-      html += '<span class="is-idle">' + esc(waitingLabel) + '</span>';
-    }
-    if (vmState.layers.idle) html += '<span class="is-idle">空闲</span>';
-    if (vmState.layers.offline) html += '<span class="is-offline">离线</span>';
+    if (vmState.layers.pending_transport) html += '<span class="is-idle">待运输</span>';
+    if (vmState.layers.no_task) html += '<span class="is-idle">无任务</span>';
+    if (vmState.layers.stopped) html += '<span class="is-offline">停运</span>';
     if ((selectedTask && vmTaskHasRouteContext(selectedTask)) || vmState.taskRoute !== 'all') html += '<span class="is-dash">规划路线</span>';
     return html;
   }
@@ -3836,10 +3878,10 @@
     else renderDispatchFallback(document.getElementById('wbDispatchMap'));
   }
   function paintVmLayerControl() {
-    var count = Object.keys(vmState.layers).filter(function (layer) { return !!vmState.layers[layer]; }).length;
+    var count = vmActiveLayerCount();
     var trigger = document.querySelector('.vm-layer-trigger');
     if (trigger) {
-      trigger.classList.toggle('has-custom', count > 2);
+      trigger.classList.toggle('has-custom', vmPlaceLayersCustom());
       var badge = trigger.querySelector('b');
       if (badge) badge.textContent = count;
     }
@@ -3870,8 +3912,8 @@
     var counts = vmVehicleCounts();
     var runtimeCounts = vmVehicleRuntimeCounts();
     var selectedRuntime = vmState.vehicleRuntimeStatuses || [];
-    var total = counts.all;
     var placeholder = '搜索车牌 / 司机';
+    var activeCategories = vmVehicleCategories();
     var vehicleTabs = [
       { id: 'all', name: '全部' },
       { id: 'has_task', name: '运输中' },
@@ -3879,7 +3921,10 @@
       { id: 'no_task', name: '无任务' },
       { id: 'stopped', name: '停运' }
     ].map(function (tab) {
-      return '<button type="button" aria-label="' + esc(tab.name) + ' ' + counts[tab.id] + '辆" aria-pressed="' + (vmState.vehicleStatus === tab.id) + '" class="' + (vmState.vehicleStatus === tab.id ? 'is-on' : '') + '" onclick="WB.vmVehicleFilter(\'' + tab.id + '\')">'
+      var on = tab.id === 'all'
+        ? vmState.vehicleStatus === 'all'
+        : vmState.vehicleStatus !== 'all' && activeCategories.indexOf(tab.id) >= 0;
+      return '<button type="button" aria-label="' + esc(tab.name) + ' ' + counts[tab.id] + '辆" aria-pressed="' + on + '" class="' + (on ? 'is-on' : '') + '" onclick="WB.vmVehicleFilter(\'' + tab.id + '\')">'
         + '<span>' + esc(tab.name) + '</span></button>';
     }).join('');
     var runtimeOptions = [
@@ -3907,12 +3952,12 @@
       + '<div class="vm-filter-row">' + runtimeFilter
       + '<div class="vm-route-filter"><label for="vmTaskRoute">线路</label><select id="vmTaskRoute" onchange="WB.vmTaskRoute(this.value)"><option value="all">全部线路</option>' + routeOptions + '</select></div></div>';
     if (vmState.leftCollapsed) {
-      return '<button type="button" class="vm-left-rail" onclick="WB.vmToggleLeftPanel()" aria-label="展开运输车辆面板" title="展开运输车辆面板">'
-        + '<i aria-hidden="true">' + dcSvg('<path d="m9 18 6-6-6-6"/>') + '</i><span>运输车辆</span><b>' + total + '</b></button>';
+      return '<button type="button" class="vm-left-rail" onclick="WB.vmToggleLeftPanel()" aria-label="展开车辆列表面板" title="展开车辆列表面板">'
+        + '<i aria-hidden="true">' + dcSvg('<path d="m9 18 6-6-6-6"/>') + '</i><span>车辆列表</span></button>';
     }
-    return '<div class="vm-monitor-head"><h3>运输车辆 <span>(' + total + ')</span></h3>'
-      + '<button type="button" class="vm-left-collapse" onclick="WB.vmToggleLeftPanel()" aria-label="收起运输车辆面板" title="收起运输车辆面板">' + dcSvg('<path d="m15 18-6-6 6-6"/>') + '</button></div>'
-      + '<span class="vm-sr-only" role="status" aria-live="polite">当前为运输车辆视图，共 ' + total + ' 辆</span>'
+    return '<div class="vm-monitor-head"><h3>车辆列表</h3>'
+      + '<button type="button" class="vm-left-collapse" onclick="WB.vmToggleLeftPanel()" aria-label="收起车辆列表面板" title="收起车辆列表面板">' + dcSvg('<path d="m15 18-6-6 6-6"/>') + '</button></div>'
+      + '<span class="vm-sr-only" role="status" aria-live="polite">当前为车辆列表</span>'
       + '<div class="vm-search' + (vmState.q ? ' has-value' : '') + '">' + dcSvg('<circle cx="11" cy="11" r="7"/><path d="M20 20l-3-3"/>')
       + '<input id="vmSearch" aria-label="' + placeholder + '" placeholder="' + placeholder + '" value="' + esc(vmState.q) + '" oninput="var hasValue=!!this.value.trim();this.parentElement.classList.toggle(\'has-value\',hasValue);this.nextElementSibling.disabled=!hasValue;WB.vmSearch(this.value)">'
       + '<button type="button" class="vm-search-clear" aria-label="清空搜索" title="清空搜索" onclick="WB.vmClearSearch()"' + (vmState.q ? '' : ' disabled') + '>' + dcSvg('<path d="m7 7 10 10M17 7 7 17"/>') + '</button></div>'
@@ -3935,21 +3980,20 @@
   function renderMonitorBody() {
     var kpiHtml = vmKpisHtml();
     var L = vmState.layers;
-    var layerItems = [
-      ['executing', '运输中车辆', '行驶中、装货中与卸货中', true],
-      ['load', '装卸货点', '场站与聚集数量'],
-      ['waiting', '待执行车辆', '小图标、低透明度'],
-      ['idle', '空闲车辆', '按需查看可派资产'],
-      ['offline', '停运车辆', '显示最后定位位置'],
-      ['station', '充电站', '选中充电车辆时自动开启'],
-      ['fence', '电子围栏', '默认不显示边界'],
-      ['traffic', '实时路况', '仅作用于当前线路']
+    function layerOption(item) {
+      return '<label class="vm-layer-option"><input type="checkbox" data-layer="' + item[0] + '"' + (L[item[0]] ? ' checked' : '')
+        + ' onchange="WB.vmLayer(\'' + item[0] + '\', this.checked)"><span class="vm-layer-check"></span><b>' + item[1] + '</b></label>';
+    }
+    var vehicleLayerItems = VM_VEHICLE_LAYER_TABS.map(function (tab) { return [tab.id, tab.name]; });
+    var placeLayerItems = [
+      ['load', '装卸货点'],
+      ['station', '充电站'],
+      ['fence', '电子围栏'],
+      ['traffic', '实时路况']
     ];
-    var activeLayerCount = layerItems.filter(function (item) { return !!L[item[0]]; }).length;
-    var layerMenu = layerItems.map(function (item) {
-      return '<label class="vm-layer-option' + (item[3] ? ' is-locked' : '') + '"><input type="checkbox" data-layer="' + item[0] + '"' + (L[item[0]] ? ' checked' : '') + (item[3] ? ' disabled aria-disabled="true"' : '')
-        + ' onchange="WB.vmLayer(\'' + item[0] + '\', this.checked)"><span class="vm-layer-check"></span><b>' + item[1] + '</b><small>' + item[2] + '</small></label>';
-    }).join('');
+    var activeLayerCount = vmActiveLayerCount();
+    var layerMenu = '<div class="vm-layer-group">车辆分类</div>' + vehicleLayerItems.map(layerOption).join('')
+      + '<div class="vm-layer-group">地图内容</div>' + placeLayerItems.map(layerOption).join('');
     return '<div class="vm-body">'
       + '<section class="vm-map-card"><div class="vm-map-stage"><div id="wbDispatchMap" class="dc-map-canvas"></div>'
       + '<section class="vm-kpis" aria-label="业务态势指标">' + kpiHtml + '</section>'
@@ -3957,9 +4001,9 @@
       + '<div class="vm-map-bar">'
       + '<button type="button" class="vm-traffic-toggle' + (L.traffic ? ' is-on' : '') + '" aria-pressed="' + L.traffic + '" onclick="WB.vmLayer(\'traffic\')"><span>实时路况</span><i aria-hidden="true"></i></button>'
       + '<div class="vm-layer-control' + (vmState.layerOpen ? ' is-open' : '') + '">'
-      + '<button type="button" class="vm-layer-trigger' + (activeLayerCount > 2 ? ' has-custom' : '') + '" aria-expanded="' + vmState.layerOpen + '" aria-controls="vmLayerPanel" onclick="WB.vmToggleLayers(event)">'
+      + '<button type="button" class="vm-layer-trigger' + (vmPlaceLayersCustom() ? ' has-custom' : '') + '" aria-expanded="' + vmState.layerOpen + '" aria-controls="vmLayerPanel" onclick="WB.vmToggleLayers(event)">'
       + dcSvg('<path d="m12 2 9 5-9 5-9-5 9-5z"/><path d="m3 12 9 5 9-5M3 17l9 5 9-5"/>') + '<span>地图图层</span><b>' + activeLayerCount + '</b></button>'
-      + '<div class="vm-layer-panel" id="vmLayerPanel"' + (vmState.layerOpen ? '' : ' hidden') + '><div class="vm-layer-panel-hd"><b>地图图层</b><span>默认聚焦正在发生的运输</span></div>' + layerMenu + '</div></div>'
+      + '<div class="vm-layer-panel" id="vmLayerPanel"' + (vmState.layerOpen ? '' : ' hidden') + '><div class="vm-layer-panel-hd"><b>地图图层</b><span>与车辆列表分类同步</span></div>' + layerMenu + '</div></div>'
       + '</div>'
       + '<aside class="vm-right is-home' + (vmOverviewDocked() ? ' is-overview-collapsed' : '') + '" id="vmRightPanel">' + vmRightPanelHtml() + '</aside>'
       + '<div id="vmWarningTickerHost" class="' + (vmState.leftCollapsed ? 'is-left-collapsed' : '') + '">' + (vmWarningTickerOnMap() ? vmWarningTickerHtml() : '') + '</div>'
@@ -6323,10 +6367,8 @@
     var current = vmOrgCurrent();
     var name = document.getElementById('vmOrgName');
     var path = document.getElementById('vmOrgPath');
-    var footer = document.getElementById('vmOrgFooter');
     if (name) name.textContent = current.short;
     if (path) path.textContent = current.path;
-    if (footer) footer.textContent = current.path;
     document.querySelectorAll('[data-org-id]').forEach(function (node) {
       var on = node.getAttribute('data-org-id') === current.id;
       node.classList.toggle('is-on', on);
@@ -6754,10 +6796,7 @@
       vmState.vehicleStatus = status || 'all';
       vmState.page = 1;
       vmClearTaskSelection();
-      vmState.layers.executing = ['all', 'has_task', 'pending_transport'].indexOf(vmState.vehicleStatus) >= 0;
-      vmState.layers.waiting = vmState.vehicleStatus === 'pending_transport';
-      vmState.layers.idle = ['all', 'no_task'].indexOf(vmState.vehicleStatus) >= 0;
-      vmState.layers.offline = ['all', 'stopped'].indexOf(vmState.vehicleStatus) >= 0;
+      vmSyncVehicleLayersFromStatus();
       vmState.layers.station = false;
       vmRestoreOverviewMap();
       paintVmScreen();
@@ -6874,8 +6913,6 @@
       vmState.layers.load = canShowRoute;
       vmState.layers.fence = false;
       vmState.selectedSite = '';
-      if (task.monitorStatus === 'executing') vmState.layers.executing = true;
-      if (task.assigned && task.monitorStatus === 'waiting') vmState.layers.waiting = true;
       vmState.layers.station = task.assigned && task.businessStatus !== 'completed' && task.vehicleStatus === 'charge';
       vmState.detail = 'task';
       paintVmPanels();
@@ -7027,7 +7064,6 @@
       vmState.selectedWarning = warning.id;
       vmState.warningDetailTab = 'overview';
       vmState.layerOpen = false;
-      vmState.layers.executing = true;
       if (warning.site) {
         vmState.selectedSite = warning.site;
         vmState.layers.load = true;
@@ -7044,6 +7080,7 @@
         vmState.vehicleRuntimeStatuses = [];
         vmState.vehicleRuntimeOpen = false;
         vmState.taskRoute = task.route || 'all';
+        vmSyncVehicleLayersFromStatus();
         vmState.kpi = '';
         var warningVehicleIndex = vmVehicleFiltered().findIndex(function (vehicle) { return vehicle.plate === task.plate; });
         vmState.page = warningVehicleIndex >= 0 ? Math.floor(warningVehicleIndex / VM_PAGE) + 1 : 1;
@@ -7067,9 +7104,15 @@
       }, 120);
     },
     vmLayer: function (key, checked) {
-      if (key === 'executing') {
-        vmState.layers.executing = true;
-        paintVmLayerControl();
+      if (vmVehicleCategoryIds().indexOf(key) >= 0) {
+        vmDismissWarningWorkspace();
+        vmState.opsOpen = false;
+        vmState.selectedWarning = '';
+        vmApplyVehicleLayerToggle(key, typeof checked === 'boolean' ? checked : !vmState.layers[key]);
+        vmState.page = 1;
+        vmClearTaskSelection();
+        vmRestoreOverviewMap();
+        paintVmScreen();
         return;
       }
       if (typeof checked === 'boolean') vmState.layers[key] = checked;
