@@ -398,7 +398,7 @@
       case 'plate': return esc(event.plate || '—');
       case 'driverName': return esc(event.driverName || '—');
       case 'location': return esc(event.location || '—');
-      case 'taskId': return type.readOnly ? esc(event.taskId || '—') : taskLink(event.taskId);
+      case 'taskId': return taskLink(event.taskId);
       case 'parkingDuration': return esc(parkingDurationText(event));
       case 'parkingStartedAt': return esc(parkingStartAt(event) || '—');
       case 'parkingEndedAt': return esc(event.recoveredAt || '—');
@@ -500,7 +500,9 @@
   }
   function renderMetrics(type, list, active) {
     return '<div class="ac-metrics ac-metrics-4">' + type.metrics.map(function (metric) {
-      return '<button type="button" class="ac-metric ac-metric-' + metric.tone + (active === metric.key ? ' is-active' : '') + '" onclick="acMetric(\'' + metric.key + '\')"><span>' + esc(metric.label) + '</span><b>' + metricCount(list, metric, type) + '</b><small>' + esc(metric.copy) + '</small></button>';
+      var body = '<span>' + esc(metric.label) + '</span><b>' + metricCount(list, metric, type) + '</b><small>' + esc(metric.copy) + '</small>';
+      if (type.readOnly) return '<div class="ac-metric ac-metric-' + metric.tone + '">' + body + '</div>';
+      return '<button type="button" class="ac-metric ac-metric-' + metric.tone + (active === metric.key ? ' is-active' : '') + '" onclick="acMetric(\'' + metric.key + '\')">' + body + '</button>';
     }).join('') + '</div>';
   }
   function tabsHtml(tab) {
@@ -585,7 +587,9 @@
       html += field('开始日期', '<input class="filter-control" id="acStart" type="date" value="' + esc(filters.start) + '">')
         + field('结束日期', '<input class="filter-control" id="acEnd" type="date" value="' + esc(filters.end) + '">');
     }
-    return html + '</div><div class="filter-actions"><button class="btn btn-default" type="button" onclick="acReset()">重置</button><button class="btn btn-primary" type="button" onclick="acApply()">查询</button></div></div>';
+    html += '</div><div class="filter-actions"><button class="btn btn-default" type="button" onclick="acReset()">重置</button><button class="btn btn-primary" type="button" onclick="acApply()">查询</button>';
+    if (type.readOnly) html += '<button class="btn btn-default" type="button" onclick="acExport()">导出</button>';
+    return html + '</div></div>';
   }
   function actionsHtml(event) {
     if (typeByCode(event.ruleCode || event.alertType).readOnly) return '<a class="link" href="javascript:void(0)" onclick="acView(\'' + esc(event.id) + '\')">查看详情</a>';
@@ -607,9 +611,10 @@
         return '<td' + (column.key === 'index' ? ' class="sticky-col"' : '') + '>' + cellValue(type, event, column.key, index) + '</td>';
       }).join('') + '</tr>';
     }).join('') : '<tr><td colspan="' + type.columns.length + '"><div class="empty-state"><b>当前没有符合条件的' + esc(type.name) + '</b><p>可调整筛选条件后重新查询。</p></div></td></tr>';
-    return '<section class="table-section"><div class="table-toolbar"><div class="left"><span class="detail-section-title">' + esc(type.name) + '</span><span class="ac-table-count">共 ' + rows.length + ' 条</span></div><div class="right">'
+    var toolbar = type.readOnly ? '' : '<div class="table-toolbar"><div class="left"><span class="detail-section-title">' + esc(type.name) + '</span><span class="ac-table-count">共 ' + rows.length + ' 条</span></div><div class="right">'
       + '<button class="toolbar-btn" type="button" onclick="acExport()">导出</button>'
-      + '<button class="toolbar-btn" type="button" data-ac-refresh onclick="acRefresh()">刷新</button></div></div>'
+      + '<button class="toolbar-btn" type="button" data-ac-refresh onclick="acRefresh()">刷新</button></div></div>';
+    return '<section class="table-section">' + toolbar
       + '<div class="table-wrap ac-table-wrap"><table class="data-table ac-table"><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table></div>'
       + pagination(rows.length) + '</section>';
   }
@@ -709,7 +714,8 @@
     var state = pageOf(type.page);
     if (type.readOnly) {
       state.listFilters.handleStatus = '';
-      if (state.activeMetric === 'pending') { state.activeMetric = ''; state.listFilters.metric = ''; }
+      state.activeMetric = '';
+      state.listFilters.metric = '';
     }
     if (window.__acPreferTab) { state.tab = window.__acPreferTab; window.__acPreferTab = ''; }
     var all = typeEvents(events(), type.code);
@@ -1254,7 +1260,7 @@
     driverId: function (event) { return event.driverId || '—'; },
     parkingOrg: function (event) { return event.departmentName || event.projectName || '—'; },
     projectOrg: function (event) { return event.projectName || '—'; },
-    task: function (event) { return typeByCode(event.ruleCode || event.alertType).readOnly ? (event.taskId || '—') : { html: taskLink(event.taskId) }; },
+    task: function (event) { return { html: taskLink(event.taskId) }; },
     route: function (event) { return event.route || '—'; },
     cargo: function (event) { return event.cargo || '—'; },
     place: function (event) { return event.location || '—'; },
@@ -1371,12 +1377,13 @@
         { key: 'vehicleRunStatus', label: '当前车辆状态' }
       ],
       headline: function (event) { return { label: '停车时长', value: parkingDurationText(event) }; },
-      timelineTitle: function (log) {
-        if (log.action === 'STILL_STARTED') return '开始持续停车';
-        if (log.action === 'STILL_CONFIRMED') return '持续静止满5分钟，确认进入停车周期';
-        if (log.action === 'TRIGGERED' || log.action === 'ALERT_CREATED') return '连续停车达到阈值，触发' + (log.toLevel || '一般') + '预警';
+      timelineTitle: function (log, event) {
+        var stillMinutes = Number(((event || {}).ruleSnapshot || {}).minStillMinutes);
+        if (!isFinite(stillMinutes) || stillMinutes <= 0) stillMinutes = 5;
+        if (log.action === 'STILL_STARTED' || log.action === 'STILL_CONFIRMED') return '持续静止满' + stillMinutes + '分钟，确认开始停车事件';
+        if (log.action === 'TRIGGERED' || log.action === 'ALERT_CREATED') return '触发' + (log.toLevel || '一般') + '预警';
         if (log.action === 'LEVEL_UPGRADE' || log.action === 'LEVEL_UPGRADED') return '升级' + (log.toLevel || '') + '预警';
-        if (log.action === 'RECOVER_CANDIDATE') return '车速回升，进入恢复确认';
+        if (log.action === 'RECOVER_CANDIDATE') return '车速回升，系统进入恢复确认';
         if (log.action === 'RECOVERED') return '车辆恢复行驶，事件恢复';
         return log.remark || '停车状态更新';
       }
@@ -1649,7 +1656,7 @@
     var kicker = config.objectKicker ? '<p class="ac-object-kicker">' + esc(config.objectKicker) + '</p>' : '';
     return schemaSection('告警对象', config.objectSchema, event, kicker);
   }
-  function buildBusinessDetail(event, schema) { return schemaSection('业务详情', schema, event); }
+  function buildBusinessDetail(event, schema, title) { return schemaSection(title || '业务详情', schema, event); }
   function triggerSection(config, event) {
     var built = config.buildTriggerReason ? config.buildTriggerReason(event) : [];
     var paragraphs = Array.isArray(built) ? built : (built.paragraphs || []);
@@ -1660,17 +1667,22 @@
     return sectionHtml('触发依据', html);
   }
   function buildAlertTimeline(event, config) {
-    return (store().getLogs(event.id) || []).slice().sort(function (a, b) {
+    var type = typeByCode(event.ruleCode || event.alertType);
+    var logs = (store().getLogs(event.id) || []).slice().sort(function (a, b) {
       return String(a.operatedAt || '').localeCompare(String(b.operatedAt || ''));
     }).filter(function (log) {
-      return !typeByCode(event.ruleCode || event.alertType).readOnly || (!isHandleLog(log) && log.action !== 'FOLLOW_UP_DUE');
-    }).map(function (log) {
+      return !type.readOnly || (!isHandleLog(log) && log.action !== 'FOLLOW_UP_DUE');
+    });
+    if (type.code === 'TRANSPORT_PARKING' && logs.some(function (log) { return log.action === 'STILL_CONFIRMED'; })) {
+      logs = logs.filter(function (log) { return log.action !== 'STILL_STARTED'; });
+    }
+    return logs.map(function (log) {
       var title = config.timelineTitle ? config.timelineTitle(log, event) : (log.remark || '状态更新');
       return {
         at: log.operatedAt,
         action: log.action,
         title: levelText(title),
-        detail: levelText(timelineDetail(log, title)),
+        detail: type.readOnly ? '' : levelText(timelineDetail(log, title)),
         operator: log.operator && log.operator !== '系统' ? log.operator : ''
       };
     });
@@ -1703,7 +1715,7 @@
     var canHandle = !type.readOnly && event.handleStatus !== '已处理';
     var view = {
       common: overviewHtml(type, event) + objectSection(config, event),
-      business: buildBusinessDetail(event, config.detailSchema),
+      business: buildBusinessDetail(event, config.detailSchema, type.readOnly ? '事件详情' : ''),
       triggerReason: config.buildTriggerReason ? triggerSection(config, event) : '',
       timeline: timelineSection(event, config)
     };
@@ -1711,7 +1723,7 @@
       + '<div class="ac-drawer-body">' + view.common + view.business + view.triggerReason + view.timeline
       + (type.readOnly ? '' : sectionHtml('处理记录', handleRecordsHtml(event)))
       + '</div>';
-    if (type.code !== 'UNLOAD_WEIGHBILL_MISSING') {
+    if (!type.readOnly) {
       html += '<footer class="ac-drawer-footer"><button class="btn btn-default" type="button" onclick="acCloseDrawer()">关闭</button>'
         + (canHandle ? '<button class="btn btn-primary" type="button" onclick="acHandle(\'' + esc(event.id) + '\')">处理</button>' : '') + '</footer>';
     }
@@ -1940,8 +1952,9 @@
     rerender();
   };
   window.acMetric = function (key) {
-    var state = currentState();
     var type = currentType();
+    if (type.readOnly) return;
+    var state = currentState();
     if (state.activeMetric === key) {
       state.activeMetric = '';
       state.listFilters = blankFilters();
@@ -2000,8 +2013,11 @@
     else toast('已提交处理');
   };
   window.acOpenTask = function (id) {
+    if (!id) return;
     closeDrawer();
+    window.__toPendingTaskCode = String(id);
     if (window.app && window.app.pages && window.app.pages['task-order-management']) window.app.navigate('task-order-management');
+    else if (typeof window.toOpenTaskByCode === 'function') window.toOpenTaskByCode(id);
     else toast('任务单 ' + id);
   };
   window.acExport = exportCsv;

@@ -631,12 +631,14 @@
         { taskStatus: '执行中', taskBound: true, taskNode: '充电中', transportRelevant: true, speed: 0, parkingStartedAt: '2026-10-08 09:00:00', parkingMinutes: 40, recoverHoldMinutes: 0, loadingScene: false, unloadingScene: false, charging: true }, []),
       signal({ sourceId: 'live-parking-brief', ruleCode: 'TRANSPORT_PARKING', plate: '云A·H3188', driverName: '何平', driverId: 'D033', taskId: 'Y20260904000033', route: '北城 → 研和', cargo: '煤炭', location: '昆磨高速', triggeredAt: '2026-10-08 10:40:00', sourceStatus: 'active' },
         { taskStatus: '执行中', taskBound: true, taskNode: '运输途中', transportRelevant: true, speed: 0, parkingStartedAt: '2026-10-08 10:40:00', parkingMinutes: 3, recoverHoldMinutes: 0, loadingScene: false, unloadingScene: false, charging: false }, []),
-      signal({ sourceId: 'history-parking-recover', ruleCode: 'TRANSPORT_PARKING', plate: '云A·G2288', driverName: '张建华', driverId: 'D024', taskId: 'Y20261007000024', route: '大开门 → 北城', cargo: '水渣', location: '昆钢厂区外侧', triggeredAt: '2026-10-07 07:20:00', recoveredAt: '2026-10-07 09:28:00', sourceStatus: 'recovered', wasTriggered: true, finalLevel: '严重' },
-        { taskStatus: '执行中', taskBound: true, taskNode: '运输途中', transportRelevant: true, speed: 12, parkingStartedAt: '2026-10-07 07:20:00', parkingMinutes: 125, recoverHoldMinutes: 4, loadingScene: false, unloadingScene: false, charging: false }, [], [
-          { action: 'STILL_STARTED', at: '2026-10-07 07:20:00', remark: '车辆进入持续静止状态' },
-          { action: 'TRIGGERED', level: '一般', at: '2026-10-07 07:50:00', remark: '连续异常停车达到30分钟，一般告警' },
-          { action: 'LEVEL_UPGRADED', from: '一般', to: '严重', at: '2026-10-07 08:20:00', remark: '连续异常停车达到60分钟' },
-          { action: 'RECOVERED', at: '2026-10-07 09:28:00', remark: '车辆速度≥5km/h持续3分钟' }
+      signal({ sourceId: 'history-parking-recover', ruleCode: 'TRANSPORT_PARKING', plate: '云A·G2288', driverName: '张建华', driverId: 'D024', taskId: 'Y20261007000024', route: '大开门 → 北城', cargo: '水渣', location: '昆钢厂区外侧', triggeredAt: '2026-10-07 07:50:00', recoveredAt: '2026-10-07 09:28:00', sourceStatus: 'recovered', wasTriggered: true, finalLevel: '紧急' },
+        { taskStatus: '执行中', taskBound: true, taskNode: '运输途中', transportRelevant: true, speed: 12, parkingStartedAt: '2026-10-07 07:20:00', staticConfirmedAt: '2026-10-07 07:25:00', parkingMinutes: 125, recoverCandidateStartAt: '2026-10-07 09:25:00', recoverHoldMinutes: 3, loadingScene: false, unloadingScene: false, charging: false }, [], [
+          { action: 'STILL_CONFIRMED', at: '2026-10-07 07:25:00', remark: '持续静止满5分钟，确认开始停车事件' },
+          { action: 'TRIGGERED', level: '一般', at: '2026-10-07 07:50:00', remark: '触发低风险预警' },
+          { action: 'LEVEL_UPGRADED', from: '一般', to: '严重', at: '2026-10-07 08:20:00', remark: '升级中风险预警' },
+          { action: 'LEVEL_UPGRADED', from: '严重', to: '紧急', at: '2026-10-07 09:20:00', remark: '升级高风险预警' },
+          { action: 'RECOVER_CANDIDATE', at: '2026-10-07 09:25:00', remark: '车速回升，系统进入恢复确认' },
+          { action: 'RECOVERED', at: '2026-10-07 09:28:00', remark: '车辆恢复行驶，事件恢复' }
         ]),
       signal({
         sourceId: 'history-parking-full-cycle', ruleCode: 'TRANSPORT_PARKING', plate: '云A·M7726', driverName: '周磊', driverId: 'D045',
@@ -651,13 +653,12 @@
         recoverCandidateStartAt: demoDay(0, '08:52:00'), recoverHoldMinutes: 3,
         loadingScene: false, unloadingScene: false, charging: false, lng: 102.758440, lat: 24.392180
       }, [], [
-        { action: 'STILL_STARTED', at: demoDay(0, '06:40:00'), remark: '车辆速度降至2km/h，开始持续静止' },
-        { action: 'STILL_CONFIRMED', at: demoDay(0, '06:45:00'), remark: '持续静止满5分钟，确认进入停车周期' },
-        { action: 'TRIGGERED', level: '一般', at: demoDay(0, '07:10:00'), remark: '连续异常停车达到30分钟，一般告警' },
-        { action: 'LEVEL_UPGRADED', from: '一般', to: '严重', at: demoDay(0, '07:40:00'), remark: '连续异常停车达到60分钟，升级为严重' },
-        { action: 'LEVEL_UPGRADED', from: '严重', to: '紧急', at: demoDay(0, '08:40:00'), remark: '连续异常停车达到120分钟，升级为紧急' },
-        { action: 'RECOVER_CANDIDATE', at: demoDay(0, '08:52:00'), remark: '车速回升至8km/h，进入恢复确认' },
-        { action: 'RECOVERED', at: demoDay(0, '08:55:00'), remark: '车速≥5km/h持续3分钟，事件恢复' }
+        { action: 'STILL_CONFIRMED', at: demoDay(0, '06:45:00'), remark: '持续静止满5分钟，确认开始停车事件' },
+        { action: 'TRIGGERED', level: '一般', at: demoDay(0, '07:10:00'), remark: '触发低风险预警' },
+        { action: 'LEVEL_UPGRADED', from: '一般', to: '严重', at: demoDay(0, '07:40:00'), remark: '升级中风险预警' },
+        { action: 'LEVEL_UPGRADED', from: '严重', to: '紧急', at: demoDay(0, '08:40:00'), remark: '升级高风险预警' },
+        { action: 'RECOVER_CANDIDATE', at: demoDay(0, '08:52:00'), remark: '车速回升，系统进入恢复确认' },
+        { action: 'RECOVERED', at: demoDay(0, '08:55:00'), remark: '车辆恢复行驶，事件恢复' }
       ]),
       signal({ sourceId: 'live-parking-k4419', ruleCode: 'TRANSPORT_PARKING', plate: '云A·K4419', driverName: '赵敏', driverId: 'D041', taskId: 'Y20260904000041', route: '景洪水泥厂 → 城北搅拌站', cargo: '水泥', location: '景洪东风镇辅路', triggeredAt: '2026-10-08 10:20:00', sourceStatus: 'active' },
         { taskStatus: '执行中', taskBound: true, taskNode: '运输途中', transportRelevant: true, speed: 1, parkingStartedAt: '2026-10-08 10:00:00', parkingMinutes: 25, recoverHoldMinutes: 0, loadingScene: false, unloadingScene: false, charging: false }, []),
@@ -1911,7 +1912,7 @@
       if (event.ruleCode === 'VEHICLE_OVERSPEED') appendSpeedSeedLogs(logs, event, result.timeline);
       else addSeedLogs(logs, event, currentSignal.history);
     });
-    return { version: 11, rules: rules, events: events, logs: logs, parkingCycles: {} };
+    return { version: 12, rules: rules, events: events, logs: logs, parkingCycles: {} };
   }
 
   function migrateVeryOldRules(rules) {
@@ -2273,7 +2274,12 @@
       events = replacedParking.events;
       logs = replacedParking.logs;
     }
-    return { version: 11, rules: rules, events: events, logs: logs, parkingCycles: saved.parkingCycles && typeof saved.parkingCycles === 'object' ? saved.parkingCycles : {} };
+    if (!saved.version || saved.version < 12) {
+      var replacedParkingTimeline = replaceTypedSeed(events, logs, seeded, ['TRANSPORT_PARKING']);
+      events = replacedParkingTimeline.events;
+      logs = replacedParkingTimeline.logs;
+    }
+    return { version: 12, rules: rules, events: events, logs: logs, parkingCycles: saved.parkingCycles && typeof saved.parkingCycles === 'object' ? saved.parkingCycles : {} };
   }
   function replaceTypedSeed(events, logs, seeded, codes) {
     var drop = {};
